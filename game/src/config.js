@@ -1,61 +1,91 @@
-// Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
-// the renderer scales it to the window, so no rule below depends on the screen size.
+// Central tuning constants for Vice Horizon. Everything gameplay-flavoured lives here so
+// systems stay small and the feel can be adjusted in one place.
 
-export const FIELD = { width: 1280, height: 720, groundY: 664 };
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
-export const STEP = 1 / 60;
+export const WORLD = {
+  blocks: 10,          // city is blocks x blocks of streets and lots
+  lotSize: 84,         // metres per block cell
+  roadWidth: 16,
+  sidewalk: 3,
+  dayLength: 150,      // seconds for a full day-night cycle
+};
 
 export const PLAYER = {
-  width: 72,
-  height: 24,
-  speed: 560,
-  invulnerable: 1.5,
+  walkSpeed: 8,
+  runSpeed: 14,
+  radius: 0.55,
+  height: 1.7,
+  maxHealth: 100,
+  maxArmor: 100,
 };
 
-export const LIVES = 3;
-
-export const BLOCK = {
-  minWidth: 40,
-  maxWidth: 110,
-  height: 36,
-  speed: 240,
-  speedPerLevel: 30,
-  speedJitter: 90,
-  interval: 0.55,
-  intervalScale: 0.88,
-  minInterval: 0.14,
-  dodgePoints: 1,
+export const CAR = {
+  accel: 16,
+  brake: 26,
+  maxSpeed: 38,
+  reverseSpeed: 10,
+  drag: 0.9,
+  turnRate: 1.9,
+  grip: 3.2,
+  radius: 1.4,
+  health: 100,
 };
 
-export const COIN = {
-  size: 24,
-  speed: 190,
-  speedPerLevel: 14,
-  interval: 1.4,
-  intervalJitter: 0.8,
-  points: 10,
+export const TRAFFIC = {
+  carCount: 26,
+  pedCount: 42,
+  carSpeed: 9,
+  pedSpeed: 1.6,
 };
 
-/** Seconds of play per level, and the last level: speeds and spawn rates stop growing there. */
-export const LEVEL = { seconds: 12, max: 12 };
-
-/** How many falling things can exist at once; the pool is allocated once, at boot. */
-export const POOL_SIZE = 64;
-
-export const PALETTE = {
-  backdrop: '#11141b',
-  sky: '#1b1f2a',
-  ground: '#2a3040',
-  player: '#4fc3f7',
-  block: '#e5534b',
-  coin: '#f2c94c',
-  panel: '#252b38',
-  text: '#eef1f5',
-  muted: '#8b93a3',
+export const POLICE = {
+  maxWanted: 5,
+  copsPerStar: 2,
+  sightRange: 46,
+  shootRange: 30,
+  fireInterval: 0.9,
+  damage: 7,
+  despawnCooldown: 12,
 };
 
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+export const WEAPONS = [
+  { id: 'fist', name: 'Fists', damage: 10, rate: 0.45, range: 2.2, auto: false },
+  { id: 'pistol', name: 'Pistol', damage: 22, rate: 0.28, range: 42, auto: false },
+  { id: 'smg', name: 'SMG', damage: 12, rate: 0.09, range: 34, auto: true },
+];
 
-/** Where the best score is kept between visits (this browser only). */
-export const BEST_KEY = 'block-dodger.best';
+export const MISSIONS = [
+  {
+    id: 'boost',
+    name: 'Night Boost',
+    brief: 'Boost the marked coupe and deliver it to the garage dock.',
+    kind: 'car-delivery',
+    reward: 750,
+  },
+  {
+    id: 'cash-run',
+    name: 'Cash Run',
+    brief: 'Collect the four cash caches scattered downtown before time runs out.',
+    kind: 'collect',
+    reward: 900,
+  },
+  {
+    id: 'payback',
+    name: 'Payback',
+    brief: 'Take out the three rival lookouts hanging around the piers.',
+    kind: 'eliminate',
+    reward: 1200,
+  },
+];
+
+export const SAVE_KEY = 'vice-horizon-save-v1';
+
+// Deterministic RNG (mulberry32) shared by world gen and ?shot= replay.
+export function makeRng(seed) {
+  let a = seed >>> 0;
+  return function rng() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}

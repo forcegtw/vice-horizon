@@ -1,53 +1,67 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Input handling: keyboard state, pointer look, and pause/menu toggles.
+// The camera follows the player automatically; mouse drag is optional free look.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
+export class Input {
+  constructor(canvas) {
+    this.keys = new Set();
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    this.dragging = false;
+    this.firing = false;
+    this._pressedOnce = new Set();
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      this.keys.add(e.code);
+      this._pressedOnce.add(e.code);
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => this.keys.clear());
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
+    canvas.addEventListener('pointerdown', (e) => {
+      this.dragging = true;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    window.addEventListener('pointerup', () => { this.dragging = false; });
+    window.addEventListener('pointermove', (e) => {
+      if (!this.dragging) return;
+      this.mouseDX += e.movementX || 0;
+      this.mouseDY += e.movementY || 0;
+    });
+    window.addEventListener('mousedown', (e) => { if (e.button === 0) this.firing = true; });
+    window.addEventListener('mouseup', (e) => { if (e.button === 0) this.firing = false; });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
 
-  window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
+  down(code) { return this.keys.has(code); }
 
-  return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
+  // True exactly once per physical press, consumed on read.
+  tapped(code) {
+    if (this._pressedOnce.has(code)) {
+      this._pressedOnce.delete(code);
+      return true;
+    }
+    return false;
+  }
+
+  // Movement axes for the current frame: forward, strafe in [-1, 1].
+  moveAxis() {
+    let f = 0, s = 0;
+    if (this.down('KeyW') || this.down('ArrowUp')) f += 1;
+    if (this.down('KeyS') || this.down('ArrowDown')) f -= 1;
+    if (this.down('KeyA') || this.down('ArrowLeft')) s -= 1;
+    if (this.down('KeyD') || this.down('ArrowRight')) s += 1;
+    return { f, s };
+  }
+
+  consumeMouse() {
+    const d = { x: this.mouseDX, y: this.mouseDY };
+    this.mouseDX = 0; this.mouseDY = 0;
+    return d;
+  }
+
+  endFrame() {
+    this._pressedOnce.clear();
+  }
 }
