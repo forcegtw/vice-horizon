@@ -4,6 +4,7 @@
 // everything routes through one master gain so mute is a single knob.
 // Witness pass: node budget per gesture is small; long sounds must be stopped, not just faded.
 // Witness pass 2: master gain is the mute knob; per-sound gains stay relative to it.
+// Witness pass 3: context still created lazily on first gesture; music timer lives on Sfx.
 
 export class Sfx {
   constructor() {

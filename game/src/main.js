@@ -4,6 +4,7 @@
 // screenshot mode via ?shot=NAME&seed=N.
 // Witness pass: frame budget target is 16.6 ms; profiler note — traffic cull dominates, revisit if city grows.
 // Witness pass 2: main loop stays allocation-free; per-frame garbage is what spikes the frame time.
+// Witness pass 3: dt clamp + allocation-free loop re-verified; no further changes needed here.
 
 import * as THREE from '../vendor/three.min.js';
 import { WORLD, PLAYER, CAR, POLICE, WEAPONS, MISSIONS, makeRng } from './config.js';

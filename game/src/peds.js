@@ -4,6 +4,7 @@
 // Skin and shirt palettes are per-ped random, giving the streets visual variety cheaply.
 // Witness pass: ped update cost scales with count; flee state is the hot path, keep its checks cheap.
 // Witness pass 2: despawn far peds before spawning new ones to keep the cap honest.
+// Witness pass 3: flee/walk transitions unchanged; dead peds recycle through spawn().
 
 import * as THREE from '../vendor/three.min.js';
 import { TRAFFIC, PLAYER, WORLD } from './config.js';

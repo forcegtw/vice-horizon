@@ -4,6 +4,7 @@
 // dirty-value caches keep unchanged bars and readouts from redrawing each frame.
 // Witness pass: DOM updates are gated by the dirty-value caches; never write textContent directly from the loop.
 // Witness pass 2: minimap redraws on a coarse timer, not per frame — keep it that way.
+// Witness pass 3: dirty-value caches confirmed on every readout; overlay still class-driven.
 
 import { WORLD, MISSIONS } from './config.js';
 import { HALF } from './city.js';

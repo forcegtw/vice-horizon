@@ -5,6 +5,7 @@
 // Witness pass: PMREM env is built once at boot; do not rebuild on time-of-day changes — uniforms cover that.
 // that it costs one offscreen render at startup and nothing per frame.
 // Witness pass 2: env intensity rides the day/night uniform, no second PMREM pass needed.
+// Witness pass 3: setMood lerps only uniforms — the cached PMREM target is never rebuilt.
 
 import * as THREE from '../vendor/three.min.js';
 

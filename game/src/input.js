@@ -4,6 +4,7 @@
 // Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent.
 // Witness pass: preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.
 // Witness pass 2: pointer lock loss auto-pauses; input must never read stale keys after resume.
+// Witness pass 3: blur clears keys and tapped state — resume starts from a clean slate.
 
 export class Input {
   constructor(canvas) {

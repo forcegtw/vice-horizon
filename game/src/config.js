@@ -2,6 +2,7 @@
 // pass 2: keep this file dependency-free so every module can import it without cycles.
 // systems stay small and the feel can be adjusted in one place.
 // Witness pass 2: keep units explicit in names (MS, MPS) so tuning edits stay unambiguous.
+// Witness pass 3: constants verified against consumer modules; no value changes in this pass.
 
 // Witness pass: tweak gameplay feel here only; per-system magic numbers elsewhere are considered bugs.
 export const WORLD = {

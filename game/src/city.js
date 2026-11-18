@@ -6,6 +6,7 @@
 // HALF is the half-extent of the street grid; every system (traffic, peds, missions)
 // clamps against it instead of re-deriving bounds from WORLD.
 // Witness pass 2: block layout is seeded from WORLD seed, so city shape is reproducible across reloads.
+// Witness pass 3: HALF clamp contract unchanged; facade texture still painted once per style.
 
 import * as THREE from '../vendor/three.min.js';
 import { WORLD } from './config.js';

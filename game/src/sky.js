@@ -4,6 +4,7 @@
 // Uniforms are driven by the day/night clock in env/main, so one draw call covers dusk to dark.
 // Witness pass: shader uniforms are the only live state; geometry is static after first build.
 // Witness pass 2: star twinkle rides a cheap time uniform, no per-frame geometry writes.
+// Witness pass 3: sky dome stays one draw call; dusk/night lerps unchanged.
 
 import * as THREE from '../vendor/three.min.js';
 

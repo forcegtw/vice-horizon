@@ -4,6 +4,7 @@
 // Each job owns its own update so adding a fourth never means touching the main loop.
 // Witness pass: mission state machine steps forward only; restart = full re-init, never rewinding steps.
 // Witness pass 2: objective markers poll at low rate; only state transitions touch HUD text.
+// Witness pass 3: reward credit stays inside the completion branch — never in the update loop.
 
 import * as THREE from '../vendor/three.min.js';
 import { MISSIONS, WORLD } from './config.js';
