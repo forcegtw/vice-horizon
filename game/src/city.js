@@ -31,7 +31,7 @@ function facadeTexture(styleIdx) {
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const roll = ((x * 31 + y * 17 + 7) % 97);
-      const lit = roll % 4 !== 0;
+      const lit = roll % 5 < 2;   // ~40% lit: scattered windows, not a lit wall
       const wx = x * cw + cw * 0.22, wy = y * ch + ch * 0.26;
       const ww = cw * 0.56, wh = ch * 0.46;
       g.fillStyle = s.trim;

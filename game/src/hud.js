@@ -7,6 +7,7 @@ import { HALF } from './city.js';
 export class Hud {
   constructor(root) {
     this.root = root;
+    this.hudEl = null;
     root.insertAdjacentHTML('beforeend', `
       <div id="hud" style="position:fixed;inset:0;pointer-events:none;font-family:'Segoe UI',system-ui,sans-serif;color:#eef2ff;">
         <div id="topright" style="position:absolute;top:14px;right:16px;text-align:right;text-shadow:0 2px 4px #000a;">
@@ -24,6 +25,7 @@ export class Hud {
         <div id="clock" style="position:absolute;bottom:16px;left:16px;font-size:14px;color:#cbd5f5;text-shadow:0 2px 4px #000a;"></div>
         <div id="toast" style="position:absolute;top:110px;left:50%;transform:translateX(-50%);font-size:17px;background:#7a1f2bcc;padding:10px 18px;border-radius:8px;display:none;color:#ffe9e9;"></div>
       </div>`);
+    this.hudEl = root.querySelector('#hud');
     this.el = {
       cash: root.querySelector('#cash'),
       wanted: root.querySelector('#wanted'),
@@ -64,6 +66,7 @@ export class Hud {
       sub: root.querySelector('#ov-sub'),
       keys: root.querySelector('#ov-keys'),
       btn: root.querySelector('#ov-btn'),
+      hidden: false,
       show(title, sub, keys, btnText) {
         ov.style.display = 'flex';
         this.title.textContent = title;
@@ -71,11 +74,14 @@ export class Hud {
         this.keys.innerHTML = keys;
         this.btn.textContent = btnText;
       },
-      hide() { ov.style.display = 'none'; },
+      hide() { ov.style.display = 'none'; this.hidden = true; },
     };
   }
 
   update(state, player, car, mission, weapon) {
+    // Title screen: keep the HUD clean, show it only once the game starts.
+    const started = !!(state.overlay && state.overlay.hidden);
+    if (this.hudEl) this.hudEl.style.visibility = started ? 'visible' : 'hidden';
     this.el.cash.textContent = `$${state.money}`;
     const stars = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
     this.el.wanted.textContent = stars;

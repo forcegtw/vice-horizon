@@ -401,8 +401,10 @@ function updateSky() {
   const fog = dayCol.clone().lerp(duskCol, 1 - Math.min(1, dayAmt * 1.6)).lerp(nightCol, 1 - dayAmt);
   scene.fog.color = fog;
   // Neon windows at night.
-  city.buildingMats.forEach((m) => { m.emissiveIntensity = (1 - dayAmt) * 1.1; });
-  city.shopMats.forEach((m) => { m.emissiveIntensity = 0.25 + (1 - dayAmt) * 1.3; });
+  // Night windows: some lights on, but never a full white wall of dots —
+    // cap the emissive so walls stay dark and windows read as scattered light.
+    city.buildingMats.forEach((m) => { m.emissiveIntensity = (1 - dayAmt) * 0.5; });
+  city.shopMats.forEach((m) => { m.emissiveIntensity = 0.2 + (1 - dayAmt) * 0.9; });
   if (city.bulbMesh) city.bulbMesh.material.color.setScalar(0.4 + (1 - dayAmt) * 0.6);
   // Block-level neon pool lights fade in after dusk.
   for (const nl of city.neonLights) nl.intensity = (1 - dayAmt) * 26;
