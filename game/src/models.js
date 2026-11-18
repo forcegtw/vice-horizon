@@ -168,7 +168,10 @@ function buildSedan(paint, roofStyle = 0) {
 
   addDetails(g, W, L);
 
-  for (const [x, z] of [[-0.84, 1.46], [0.84, 1.46], [-0.84, -1.46], [0.84, -1.46]]) {
+  // Wheel centres sit just outside the body flank (half-width 0.97) so the tire
+  // ring is visible from the side instead of being buried in the shell.
+  const wx = W / 2 + 0.02;
+  for (const [x, z] of [[-wx, 1.46], [wx, 1.46], [-wx, -1.46], [wx, -1.46]]) {
     const w = makeWheel(0.36, 0.28);
     w.position.set(x, 0.36, z);
     g.add(w);
@@ -204,7 +207,8 @@ function buildVan(paint) {
   }
   addDetails(g, W, L, { lightY: 0.78, tallLights: true });
 
-  for (const [x, z] of [[-0.9, 1.72], [0.9, 1.72], [-0.9, -1.62], [0.9, -1.62]]) {
+  const vwx = W / 2 + 0.02;
+  for (const [x, z] of [[-vwx, 1.72], [vwx, 1.72], [-vwx, -1.62], [vwx, -1.62]]) {
     const w = makeWheel(0.4, 0.3);
     w.position.set(x, 0.4, z);
     g.add(w);
@@ -259,7 +263,8 @@ function buildTruck(paint) {
     bumper.position.set(0, 0.44, 2.86);
     g.add(bumper);
   }
-  for (const [x, z] of [[-1.0, 2.0], [1.0, 2.0], [-1.0, -1.2], [1.0, -1.2], [-1.0, -2.0], [1.0, -2.0]]) {
+  const twx = 1.1;
+  for (const [x, z] of [[-twx, 2.0], [twx, 2.0], [-twx, -1.2], [twx, -1.2], [-twx, -2.0], [twx, -2.0]]) {
     const w = makeWheel(0.44, 0.34);
     w.position.set(x, 0.44, z);
     g.add(w);
