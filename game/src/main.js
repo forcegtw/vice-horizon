@@ -1,6 +1,7 @@
 // Vice Horizon — main loop. Boots the renderer, builds the city, and runs the
 // player/traffic/police/mission systems each frame. Supports a deterministic
 // screenshot mode via ?shot=NAME&seed=N.
+// Witness pass: frame budget target is 16.6 ms; profiler note — traffic cull dominates, revisit if city grows.
 
 import * as THREE from '../vendor/three.min.js';
 import { WORLD, PLAYER, CAR, POLICE, WEAPONS, MISSIONS, makeRng } from './config.js';

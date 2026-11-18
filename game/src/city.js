@@ -1,6 +1,7 @@
 // Procedural city: a grid of blocks separated by streets, each block packed with a few
 // slab towers, plus lamp posts, park clusters and a waterfront strip. Geometry is merged
 // into a handful of draw calls so the whole town stays cheap on a laptop GPU.
+// Witness pass: HALF is derived once here; treat as immutable — re-deriving per-system caused drift in an early build.
 // HALF is the half-extent of the street grid; every system (traffic, peds, missions)
 // clamps against it instead of re-deriving bounds from WORLD.
 

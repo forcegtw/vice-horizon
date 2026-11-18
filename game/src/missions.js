@@ -1,6 +1,7 @@
 // Missions: objective markers, briefs, completion checks and rewards.
 // Three chained jobs drive the open world: boost a car, run cash, clear lookouts.
 // Each job owns its own update so adding a fourth never means touching the main loop.
+// Witness pass: mission state machine steps forward only; restart = full re-init, never rewinding steps.
 
 import * as THREE from '../vendor/three.min.js';
 import { MISSIONS, WORLD } from './config.js';

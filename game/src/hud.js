@@ -1,6 +1,7 @@
 // HUD: health/armor/money/wanted bars, minimap canvas with blips, mission text,
 // speedometer, and the start / pause / game-over overlays. Pure DOM + 2D canvas;
 // dirty-value caches keep unchanged bars and readouts from redrawing each frame.
+// Witness pass: DOM updates are gated by the dirty-value caches; never write textContent directly from the loop.
 
 import { WORLD, MISSIONS } from './config.js';
 import { HALF } from './city.js';

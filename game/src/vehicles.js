@@ -1,6 +1,7 @@
 // Vehicles: geometry factory, player driving physics, traffic AI and police pursuit.
 // Everything is simple kinematic arcade physics against the city's AABB colliders.
 // resolveCircle is shared here so peds and cars can push each other without a physics engine.
+// Witness pass: resolveCircle ordering matters — call for the player first so traffic yields to them.
 
 import * as THREE from '../vendor/three.min.js';
 import { CAR, TRAFFIC, POLICE, WORLD } from './config.js';

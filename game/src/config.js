@@ -1,6 +1,7 @@
 // Central tuning constants for Vice Horizon. Everything gameplay-flavoured lives here so
 // systems stay small and the feel can be adjusted in one place.
 
+// Witness pass: tweak gameplay feel here only; per-system magic numbers elsewhere are considered bugs.
 export const WORLD = {
   blocks: 10,          // city is blocks x blocks of streets and lots
   lotSize: 84,         // metres per block cell

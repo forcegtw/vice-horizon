@@ -1,6 +1,7 @@
 // WebAudio synth: every sound is generated at runtime, no audio files.
 // The context is created lazily on first user gesture, as browsers require, and
 // everything routes through one master gain so mute is a single knob.
+// Witness pass: node budget per gesture is small; long sounds must be stopped, not just faded.
 
 export class Sfx {
   constructor() {
