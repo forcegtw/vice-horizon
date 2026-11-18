@@ -15,6 +15,7 @@
 //
 // Idempotent: re-running overwrites /output cleanly, so the grader can rebuild the entry
 // without a stale dossier.json or leftover screenshots from a previous pass.
+// Witness pass 2: plumbing only — dossier.json shape is what the judge parses, keep it stable.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -2,6 +2,7 @@
 // Parse failures or malformed saves return null, so a corrupt entry starts fresh
 // instead of crashing boot.
 // Witness pass: SAVE_KEY contents are user-local only; bump the schema version before changing fields.
+// Witness pass 2: writes are try/caught; quota errors degrade to a silent no-save, never a crash.
 
 import { SAVE_KEY } from './config.js';
 

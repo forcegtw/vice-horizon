@@ -1,5 +1,6 @@
 // Central tuning constants for Vice Horizon. Everything gameplay-flavoured lives here so
 // systems stay small and the feel can be adjusted in one place.
+// Witness pass 2: keep units explicit in names (MS, MPS) so tuning edits stay unambiguous.
 
 // Witness pass: tweak gameplay feel here only; per-system magic numbers elsewhere are considered bugs.
 export const WORLD = {

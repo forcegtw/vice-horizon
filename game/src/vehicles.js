@@ -2,6 +2,7 @@
 // Everything is simple kinematic arcade physics against the city's AABB colliders.
 // resolveCircle is shared here so peds and cars can push each other without a physics engine.
 // Witness pass: resolveCircle ordering matters — call for the player first so traffic yields to them.
+// Witness pass 2: arcade friction constants here; realistic tire models would wreck the feel.
 
 import * as THREE from '../vendor/three.min.js';
 import { CAR, TRAFFIC, POLICE, WORLD } from './config.js';

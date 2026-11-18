@@ -2,6 +2,7 @@
 // The camera follows the player automatically; mouse drag is optional free look.
 // Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent.
 // Witness pass: preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.
+// Witness pass 2: pointer lock loss auto-pauses; input must never read stale keys after resume.
 
 export class Input {
   constructor(canvas) {

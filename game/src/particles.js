@@ -2,6 +2,7 @@
 // Each burst grabs a slice of the pool and animates positions/alpha per frame.
 // The pool is a ring: dead slots are reclaimed, so a busy firefight never grows.
 // Witness pass: pool size 600 is the ceiling; bursts beyond it silently reuse the oldest ring slots.
+// Witness pass 2: alpha fades are per-particle, additive blending hides pool reuse nicely.
 
 import * as THREE from '../vendor/three.min.js';
 

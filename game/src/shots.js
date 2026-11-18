@@ -3,6 +3,7 @@
 // to a setup function that positions the player, camera, cars and HUD.
 // Witness pass: every shot setup must be deterministic; no Math.random, only the seeded makeRng stream.
 // Same seed, same screenshot: every setup is pure w.r.t. the seeded RNG.
+// Witness pass 2: settle frames let particles/HUD converge before capture, don't skip them.
 
 export const SHOTS = {
   start(state) {
