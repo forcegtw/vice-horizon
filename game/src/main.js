@@ -28,7 +28,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.1;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0e14);
@@ -56,16 +56,46 @@ const hemi = new THREE.HemisphereLight(0x9fb0ff, 0x241f2e, 0.45);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffe9c4, 1.1);
 sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -160; sun.shadow.camera.right = 160;
 sun.shadow.camera.top = 160; sun.shadow.camera.bottom = -160;
 sun.shadow.camera.far = 500;
 scene.add(sun);
 scene.add(sun.target);
 
-// Moonlight tint used at night.
+// Moonlight tint used at night, with soft shadows so streets aren't flat black.
 const moon = new THREE.DirectionalLight(0x8fa8ff, 0.0);
+moon.castShadow = true;
+moon.shadow.mapSize.set(1024, 1024);
+moon.shadow.camera.left = -160; moon.shadow.camera.right = 160;
+moon.shadow.camera.top = 160; moon.shadow.camera.bottom = -160;
+moon.shadow.camera.far = 500;
 scene.add(moon);
+
+// Headlight rig: two SpotLights that light the road ahead of the player's car.
+// Re-attached whenever the player steals a different car.
+function attachHeadlights(car) {
+  if (!car) return;
+  if (!car.headlights) {
+    const mk = (x) => {
+      const s = new THREE.SpotLight(0xfff2d0, 0, 42, 0.5, 0.45, 1.4);
+      s.position.set(x, 0.8, 2.2);
+      s.target.position.set(x * 1.6, 0.1, 12);
+      s.shadow.camera.far = 45;
+      car.mesh.add(s, s.target);
+      return s;
+    };
+    car.headlights = [mk(-0.6), mk(0.6)];
+  }
+}
+function updateHeadlights() {
+  const night = 1 - updateSky.dayAmt;
+  const on = player.inCar && night > 0.25;
+  for (const s of playerCar?.headlights || []) {
+    s.intensity += ((on ? 320 : 0) - s.intensity) * Math.min(1, 0.1);
+    s.visible = s.intensity > 1;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Player: articulated rig with head/torso/arms/legs and a held weapon.
@@ -139,7 +169,7 @@ const state = {
     police.units.push(v);
   },
   mission,
-  stealCar: (c) => { playerCar = c; },
+  stealCar: (c) => { playerCar = c; attachHeadlights(c); },
   particles,
 };
 
@@ -230,6 +260,7 @@ function tryEnterCar() {
   player.inCar = true;
   player.wasWanted = state.wanted;
   playerCar = best;
+  attachHeadlights(playerCar);
   // Grand theft auto: witnesses call it in.
   wantedUp(best.kind === 'police' ? 2 : 1);
   sfx.pickup();
@@ -356,18 +387,25 @@ function updateSky() {
   sun.target.position.set(player.x, 0, player.z);
   sun.intensity = 1.25 * dayAmt;
   moon.position.set(-sun.position.x, Math.max(60, -Math.sin(ang) * 160), -40);
-  moon.intensity = (1 - dayAmt) * 0.5;
-  ambient.intensity = 0.2 + dayAmt * 0.5;
-  hemi.intensity = 0.15 + dayAmt * 0.4;
+  moon.intensity = (1 - dayAmt) * 0.85;
+  moon.target.position.set(player.x, 0, player.z);
+  // Night floor: never let the city go pitch black.
+  ambient.intensity = 0.32 + dayAmt * 0.45;
+  ambient.color.setHex(dayAmt > 0.5 ? 0x8899bb : 0x46506e);
+  hemi.intensity = 0.28 + dayAmt * 0.35;
+  hemi.groundColor.setHex(dayAmt > 0.5 ? 0x241f2e : 0x1b2130);
 
   const dayCol = new THREE.Color(0x87a8d8);
   const duskCol = new THREE.Color(0x3a2a55);
-  const nightCol = new THREE.Color(0x0b0e14);
+  const nightCol = new THREE.Color(0x121a2c);
   const fog = dayCol.clone().lerp(duskCol, 1 - Math.min(1, dayAmt * 1.6)).lerp(nightCol, 1 - dayAmt);
   scene.fog.color = fog;
   // Neon windows at night.
-  city.buildingMat.emissiveIntensity = (1 - dayAmt) * 0.9;
+  city.buildingMats.forEach((m) => { m.emissiveIntensity = (1 - dayAmt) * 1.1; });
+  city.shopMats.forEach((m) => { m.emissiveIntensity = 0.25 + (1 - dayAmt) * 1.3; });
   if (city.bulbMesh) city.bulbMesh.material.color.setScalar(0.4 + (1 - dayAmt) * 0.6);
+  // Block-level neon pool lights fade in after dusk.
+  for (const nl of city.neonLights) nl.intensity = (1 - dayAmt) * 26;
   // Neon signs flicker and shine after dusk.
   if (city.signMeshes) {
     const glow = 0.25 + (1 - dayAmt) * 0.75;
@@ -510,6 +548,7 @@ function tick(now) {
 
   updateSky();
   sky.update(updateSky.fraction, sun.position.clone().normalize(), updateSky.dayAmt);
+  updateHeadlights();
   updateCamera(dt);
   hud.update(state, player, playerCar, mission, currentWeapon());
 

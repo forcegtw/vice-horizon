@@ -49,7 +49,7 @@ export class Hud {
   // Overlay screens: title, pause, game over, and the in-mission brief panel.
   static overlay(root) {
     root.insertAdjacentHTML('beforeend', `
-      <div id="overlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 40%, #1a2138ee, #05070dee);z-index:20;">
+      <div id="overlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 40%, #1a213866, #05070d33);z-index:20;">
         <div style="text-align:center;max-width:560px;padding:32px;font-family:'Segoe UI',system-ui,sans-serif;color:#eef2ff;">
           <div id="ov-title" style="font-size:52px;font-weight:800;letter-spacing:2px;background:linear-gradient(90deg,#ff7ad9,#7fd4ff,#ffd76e);-webkit-background-clip:text;background-clip:text;color:transparent;">VICE HORIZON</div>
           <div id="ov-sub" style="margin:14px 0 4px;color:#9fb0d8;font-size:15px;line-height:1.6;"></div>

@@ -14,7 +14,7 @@ export const SHOTS = {
     state.player.x = 8; state.player.z = 30;
     state.camera.position.set(state.player.x - 18, 26, state.player.z - 34);
     state.camera.lookAt(state.player.x, 6, state.player.z + 10);
-    state.time = WORLD_DAY * 0.78;
+    state.time = WORLD_DAY * 0.36; // bright morning title with long-ish shadows
   },
   play(state) {
     // Mid-chase on the centre boulevard: stolen car + cop ahead, wanted 2.
@@ -27,7 +27,7 @@ export const SHOTS = {
     state.camYaw = 0;
     state.wanted = 2;
     state.spawnCopAt(0, 68);
-    state.time = WORLD_DAY * 0.86;
+    state.time = WORLD_DAY * 0.74; // dusk drive with headlights cutting the street
     state.mission.start();
     state.mission.targets[0].x = 0;
     state.mission.targets[0].z = 90;
@@ -45,7 +45,7 @@ export const SHOTS = {
     state.player.heading = 0;
     state.camYaw = 0;
     state.mission.targets[0].x = 0; state.mission.targets[0].z = 0;
-    state.time = WORLD_DAY * 0.93;
+    state.time = WORLD_DAY * 0.79; // blue-hour night, lit street, neon markers
     state.mission.marker.position.set(0, 0, 0);
     state.mission.message('Grab the cash caches before the clock runs out.', 60);
   },
