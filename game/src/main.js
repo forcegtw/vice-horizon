@@ -28,7 +28,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.35;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0e14);
@@ -50,11 +50,11 @@ const input = new Input(canvas);
 const sfx = new Sfx();
 
 // Lights: dim ambient + a sun that orbits through the day cycle.
-const ambient = new THREE.AmbientLight(0x8899bb, 0.55);
+const ambient = new THREE.AmbientLight(0x9fb3d9, 0.7);
 scene.add(ambient);
 const hemi = new THREE.HemisphereLight(0x9fb0ff, 0x241f2e, 0.45);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffe9c4, 1.1);
+const sun = new THREE.DirectionalLight(0xffe9c4, 1.6);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -160; sun.shadow.camera.right = 160;
@@ -385,12 +385,12 @@ function updateSky() {
   const dayAmt = THREE.MathUtils.clamp(Math.sin(ang) * 1.4 + 0.35, 0, 1);
   sun.position.set(Math.cos(ang) * 180, Math.sin(ang) * 160 + 20, 60);
   sun.target.position.set(player.x, 0, player.z);
-  sun.intensity = 1.25 * dayAmt;
+  sun.intensity = 1.7 * dayAmt;
   moon.position.set(-sun.position.x, Math.max(60, -Math.sin(ang) * 160), -40);
   moon.intensity = (1 - dayAmt) * 0.85;
   moon.target.position.set(player.x, 0, player.z);
   // Night floor: never let the city go pitch black.
-  ambient.intensity = 0.32 + dayAmt * 0.45;
+  ambient.intensity = 0.45 + dayAmt * 0.55;
   ambient.color.setHex(dayAmt > 0.5 ? 0x8899bb : 0x46506e);
   hemi.intensity = 0.28 + dayAmt * 0.35;
   hemi.groundColor.setHex(dayAmt > 0.5 ? 0x241f2e : 0x1b2130);
@@ -419,6 +419,7 @@ function updateSky() {
   // Exported for the sky dome shader.
   updateSky.fraction = frac;
   updateSky.dayAmt = dayAmt;
+
 }
 
 // ---------------------------------------------------------------------------

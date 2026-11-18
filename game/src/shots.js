@@ -17,7 +17,9 @@ export const SHOTS = {
     state.time = WORLD_DAY * 0.36; // bright morning title with long-ish shadows
   },
   play(state) {
-    // Mid-chase on the centre boulevard: stolen car + cop ahead, wanted 2.
+    // Golden-hour cruise on the centre boulevard: stolen car mid-drive, skyline
+    // catching warm light, mission marker ahead. Golden hour reads far better in
+    // screenshots than deep night: richer color, visible detail, no mud.
     state.hideOverlay();
     const c = state.traffic.cars[0];
     state.stealCar(c);
@@ -27,7 +29,7 @@ export const SHOTS = {
     state.camYaw = 0;
     state.wanted = 2;
     state.spawnCopAt(0, 68);
-    state.time = WORLD_DAY * 0.74; // dusk drive with headlights cutting the street
+    state.time = WORLD_DAY * 0.52; // mid-morning warm sun, full detail visible
     state.mission.start();
     state.mission.targets[0].x = 0;
     state.mission.targets[0].z = 90;

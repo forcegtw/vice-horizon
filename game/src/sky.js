@@ -76,10 +76,10 @@ export class Sky {
     const night = 1 - day;
 
     // Day: blue dome, warm horizon. Dusk: orange band. Night: deep navy.
-    const dayTop = new THREE.Color(0x3a6db8);
+    const dayTop = new THREE.Color(0x5b93d6);
     const duskTop = new THREE.Color(0x2c2350);
     const nightTop = new THREE.Color(0x0a1226);
-    const dayHor = new THREE.Color(0xbfd3ec);
+    const dayHor = new THREE.Color(0xd8e6f5);
     const duskHor = new THREE.Color(0xe8794a);
     const nightHor = new THREE.Color(0x1e2a44);
 

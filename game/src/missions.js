@@ -6,17 +6,26 @@ import { MISSIONS, WORLD } from './config.js';
 import { HALF } from './city.js';
 
 // A glowing ground cylinder marking an objective, plus a floating arrow.
+// Reduced opacity so the marker tints the street without washing out the view:
+// a soft halo disc, a thin ring at ground level and a slim light pillar.
 export function makeMarker(color = 0xffc94a) {
   const g = new THREE.Group();
   const cyl = new THREE.Mesh(
     new THREE.CylinderGeometry(2.4, 2.4, 3.2, 16, 1, true),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false })
   );
   cyl.position.y = 1.6;
   g.add(cyl);
+  const halo = new THREE.Mesh(
+    new THREE.CircleGeometry(3.1, 24),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false })
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = 0.05;
+  g.add(halo);
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(2.2, 2.7, 24),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.12;
