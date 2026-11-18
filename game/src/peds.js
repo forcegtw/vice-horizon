@@ -81,11 +81,14 @@ export class Peds {
       // Strut animation.
       p.phase += dt * p.speed * 3.2;
       const limbs = p.mesh.userData.limbs;
-      const swing = Math.sin(p.phase) * 0.5;
+      const swing = Math.sin(p.phase) * 0.62;
       limbs[0].rotation.x = swing;
       limbs[1].rotation.x = -swing;
-      limbs[2].rotation.x = -swing * 0.7;
-      limbs[3].rotation.x = swing * 0.7;
+      limbs[2].rotation.x = -swing * 0.8;
+      limbs[3].rotation.x = swing * 0.8;
+      // Vertical bob + subtle forward lean while moving; settles when idle-flee.
+      p.mesh.position.y = Math.abs(Math.sin(p.phase)) * 0.05;
+      p.mesh.rotation.x = p.state === 'flee' ? 0.14 : 0.05;
 
       p.mesh.position.set(p.x, 0, p.z);
       p.mesh.rotation.y = p.heading;

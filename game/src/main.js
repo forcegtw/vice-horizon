@@ -54,7 +54,7 @@ const ambient = new THREE.AmbientLight(0x9fb3d9, 0.7);
 scene.add(ambient);
 const hemi = new THREE.HemisphereLight(0x9fb0ff, 0x241f2e, 0.45);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffe9c4, 1.6);
+const sun = new THREE.DirectionalLight(0xffdfb0, 1.7);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -160; sun.shadow.camera.right = 160;
@@ -359,8 +359,8 @@ function updateCamera(dt) {
   }
 
   const target = player.inCar ? playerCar : player;
-  const back = player.inCar ? 10.5 : 6.0;
-  const height = player.inCar ? 5.2 : 3.4;
+  const back = player.inCar ? 10.0 : 5.8;
+  const height = player.inCar ? 4.7 : 3.0;
   const cx = target.x - Math.sin(camYaw) * back;
   const cz = target.z - Math.cos(camYaw) * back;
   // Keep the camera out of buildings AND out of the sky: clamp height under the
@@ -391,7 +391,7 @@ function updateSky() {
   moon.target.position.set(player.x, 0, player.z);
   // Night floor: never let the city go pitch black.
   ambient.intensity = 0.45 + dayAmt * 0.55;
-  ambient.color.setHex(dayAmt > 0.5 ? 0x8899bb : 0x46506e);
+  ambient.color.setHex(dayAmt > 0.5 ? 0x9fb3d9 : 0x5a648a);
   hemi.intensity = 0.28 + dayAmt * 0.35;
   hemi.groundColor.setHex(dayAmt > 0.5 ? 0x241f2e : 0x1b2130);
 

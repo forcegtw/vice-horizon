@@ -21,14 +21,19 @@ export const SHOTS = {
     // catching warm light, mission marker ahead. Golden hour reads far better in
     // screenshots than deep night: richer color, visible detail, no mud.
     state.hideOverlay();
-    const c = state.traffic.cars[0];
+    const c = state.traffic.cars.find((k) => k.mesh.userData.style === 'sedan') || state.traffic.cars[0];
     state.stealCar(c);
     c.x = 0; c.z = 40; c.heading = 0;
     c.speed = 12;
     state.player.inCar = true;
     state.camYaw = 0;
     state.wanted = 2;
-    state.spawnCopAt(0, 68);
+    // Clear the corridor around the player's car: a traffic van spawning on top of
+    // the camera ruins the framing. Push every other car outside the shot.
+    for (const other of state.traffic.cars) {
+      if (other === c) continue;
+      if (other !== c) { other.x = -180 + (other.x % 20); other.z = -320; other.speed = 0; }
+    }
     state.time = WORLD_DAY * 0.52; // mid-morning warm sun, full detail visible
     state.mission.start();
     state.mission.targets[0].x = 0;

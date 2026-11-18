@@ -132,7 +132,9 @@ export class Traffic {
         x = along;
         heading = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       }
-      const color = CAR_COLORS[Math.floor(rng() * CAR_COLORS.length)];
+      // Bias traffic toward brighter paints so cars pop against asphalt.
+      const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318); // skip near-black obsidian
+      const color = CAR_BRIGHT[Math.floor(rng() * CAR_BRIGHT.length)];
       const mesh = carMesh(color);
       scene.add(mesh);
       const v = new Vehicle(mesh, x, z, heading, 'traffic');
