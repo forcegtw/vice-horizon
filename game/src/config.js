@@ -21,7 +21,7 @@ export const PLAYER = {
 export const CAR = {
   accel: 16,
   brake: 26,
-  maxSpeed: 38,
+  maxSpeed: 38,        // ~137 km/h at this scale: fast enough to feel like a getaway
   reverseSpeed: 10,
   drag: 0.9,
   turnRate: 1.9,

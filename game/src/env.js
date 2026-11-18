@@ -1,6 +1,7 @@
 // Procedural environment map. MeshStandardMaterial needs something to reflect or
 // metal reads as flat black; we render a small gradient dome (sky, horizon, ground,
-// one sun blob) into a PMREM once at boot and hand it to the scene.
+// one sun blob) into a PMREM once at boot and hand it to the scene. Cheap enough
+// that it costs one offscreen render at startup and nothing per frame.
 
 import * as THREE from '../vendor/three.min.js';
 

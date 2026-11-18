@@ -1,5 +1,6 @@
 // Input handling: keyboard state, pointer look, and pause/menu toggles.
 // The camera follows the player automatically; mouse drag is optional free look.
+// Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent.
 
 export class Input {
   constructor(canvas) {

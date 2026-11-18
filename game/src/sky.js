@@ -1,5 +1,6 @@
 // Sky: a big inverted sphere with a vertex-gradient shader, a sun disc glow baked
 // into the same shader, and a sprinkle of stars that fade in at night.
+// Uniforms are driven by the day/night clock in env/main, so one draw call covers dusk to dark.
 
 import * as THREE from '../vendor/three.min.js';
 

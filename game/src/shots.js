@@ -1,6 +1,7 @@
 // Deterministic screenshot mode: ?shot=NAME&seed=N freezes the sim into a staged
 // tableau, lets it settle, then the grader captures the canvas. Each shot name maps
 // to a setup function that positions the player, camera, cars and HUD.
+// Same seed, same screenshot: every setup is pure w.r.t. the seeded RNG.
 
 export const SHOTS = {
   start(state) {

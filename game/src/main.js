@@ -194,7 +194,8 @@ overlay.show(
 );
 
 const hud = new Hud(document.body);
-// Shot staging needs the overlay handle, so it runs after its creation below.
+// Shot staging needs the overlay handle, so it runs after its creation below. The
+// fixed-step loop caps catch-up frames per rAF so a slow laptop never spirals.
 function applyShot() {
   if (!shotName || !SHOTS[shotName]) return false;
   started = true;

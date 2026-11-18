@@ -1,4 +1,6 @@
 // Save/load: money, mission progress and stats persist to localStorage.
+// Parse failures or malformed saves return null, so a corrupt entry starts fresh
+// instead of crashing boot.
 
 import { SAVE_KEY } from './config.js';
 

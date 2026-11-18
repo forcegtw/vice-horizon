@@ -1,5 +1,6 @@
 // Missions: objective markers, briefs, completion checks and rewards.
 // Three chained jobs drive the open world: boost a car, run cash, clear lookouts.
+// Each job owns its own update so adding a fourth never means touching the main loop.
 
 import * as THREE from '../vendor/three.min.js';
 import { MISSIONS, WORLD } from './config.js';
