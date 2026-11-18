@@ -1,4 +1,5 @@
 // Sky: a big inverted sphere with a vertex-gradient shader, a sun disc glow baked
+// pass 2: sun direction must match env.js dome highlight or reflections disagree.
 // into the same shader, and a sprinkle of stars that fade in at night.
 // Uniforms are driven by the day/night clock in env/main, so one draw call covers dusk to dark.
 // Witness pass: shader uniforms are the only live state; geometry is static after first build.

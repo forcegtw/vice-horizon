@@ -1,4 +1,5 @@
 // Procedural city: a grid of blocks separated by streets, each block packed with a few
+// pass 2: merged meshes are static; only lamp/park decoration varies with the seed.
 // slab towers, plus lamp posts, park clusters and a waterfront strip. Geometry is merged
 // into a handful of draw calls so the whole town stays cheap on a laptop GPU.
 // Witness pass: HALF is derived once here; treat as immutable — re-deriving per-system caused drift in an early build.

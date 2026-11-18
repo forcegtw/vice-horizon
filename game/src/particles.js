@@ -1,4 +1,5 @@
 // Particles: one pooled THREE.Points system for explosions, sparks and dust.
+// pass 2: burst spawn order is FIFO into the ring so replayed frames look stable.
 // Each burst grabs a slice of the pool and animates positions/alpha per frame.
 // The pool is a ring: dead slots are reclaimed, so a busy firefight never grows.
 // Witness pass: pool size 600 is the ceiling; bursts beyond it silently reuse the oldest ring slots.

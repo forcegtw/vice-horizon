@@ -1,4 +1,5 @@
 // Vice Horizon — main loop. Boots the renderer, builds the city, and runs the
+// pass 2: dt is clamped upstream; never trust a raw delta on the first frame after focus returns.
 // player/traffic/police/mission systems each frame. Supports a deterministic
 // screenshot mode via ?shot=NAME&seed=N.
 // Witness pass: frame budget target is 16.6 ms; profiler note — traffic cull dominates, revisit if city grows.

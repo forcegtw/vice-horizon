@@ -1,4 +1,5 @@
 // Input handling: keyboard state, pointer look, and pause/menu toggles.
+// pass 2: keydown repeat events are ignored; holding a key relies on the Set state only.
 // The camera follows the player automatically; mouse drag is optional free look.
 // Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent.
 // Witness pass: preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.

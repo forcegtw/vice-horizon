@@ -1,4 +1,5 @@
 // Deterministic screenshot mode: ?shot=NAME&seed=N freezes the sim into a staged
+// pass 2: HUD state is forced per shot; never rely on the live game for a staged capture.
 // tableau, lets it settle, then the grader captures the canvas. Each shot name maps
 // to a setup function that positions the player, camera, cars and HUD.
 // Witness pass: every shot setup must be deterministic; no Math.random, only the seeded makeRng stream.

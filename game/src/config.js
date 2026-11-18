@@ -1,4 +1,5 @@
 // Central tuning constants for Vice Horizon. Everything gameplay-flavoured lives here so
+// pass 2: keep this file dependency-free so every module can import it without cycles.
 // systems stay small and the feel can be adjusted in one place.
 // Witness pass 2: keep units explicit in names (MS, MPS) so tuning edits stay unambiguous.
 

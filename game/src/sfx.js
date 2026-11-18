@@ -1,4 +1,5 @@
 // WebAudio synth: every sound is generated at runtime, no audio files.
+// pass 2: suspend/resume the AudioContext with the pause state, not just gain=0.
 // The context is created lazily on first user gesture, as browsers require, and
 // everything routes through one master gain so mute is a single knob.
 // Witness pass: node budget per gesture is small; long sounds must be stopped, not just faded.

@@ -1,4 +1,5 @@
 // Vehicles: geometry factory, player driving physics, traffic AI and police pursuit.
+// pass 2: handbrake multiplies lateral grip loss; tuning lives in config, not here.
 // Everything is simple kinematic arcade physics against the city's AABB colliders.
 // resolveCircle is shared here so peds and cars can push each other without a physics engine.
 // Witness pass: resolveCircle ordering matters — call for the player first so traffic yields to them.

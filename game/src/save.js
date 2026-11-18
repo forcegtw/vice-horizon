@@ -1,4 +1,5 @@
 // Save/load: money, mission progress and stats persist to localStorage.
+// pass 2: schema version lives first in the object; validate it before trusting other fields.
 // Parse failures or malformed saves return null, so a corrupt entry starts fresh
 // instead of crashing boot.
 // Witness pass: SAVE_KEY contents are user-local only; bump the schema version before changing fields.
