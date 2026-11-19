@@ -1,9 +1,18 @@
-// Vice Horizon — main loop. Boots the renderer, builds the city, and runs the
-// player/traffic/police/mission systems each frame. Supports a deterministic
-// screenshot mode via ?shot=NAME&seed=N.
-// dt is clamped upstream; never trust a raw delta on the first frame after focus returns.
-// Frame budget target is 16.6 ms; profiler note — traffic cull dominates, revisit if city grows.
-// Main loop stays allocation-free; per-frame garbage is what spikes the frame time.
+// Vice Horizon — entrypoint and frame loop.
+//
+// Responsibilities, in boot order:
+//   1. renderer + scene + camera setup (deterministic when ?seed=N is given)
+//   2. city build, environment dressing, input + audio
+//   3. lights (sun, moon, ambient/hemi, headlight rig)
+//   4. player rig, weapon tracers, traffic/peds/police/missions/side jobs
+//   5. wanted/weather/radio/economy/minimap/HUD wiring onto a shared `state`
+//   6. save restore, start overlay, shot staging (?shot=start|play|end|dusk)
+//   7. the fixed-cap rAF loop that drives every system each frame
+//
+// dt is clamped here — never trust a raw delta on the first frame after focus
+// returns. Frame budget target is 16.6 ms; traffic culling dominates it, so
+// revisit the city build before touching systems if frames spike. The loop is
+// allocation-free on purpose: per-frame garbage is what spikes frame time.
 
 import * as THREE from '../vendor/three.min.js';
 import { WORLD, PLAYER, CAR, POLICE, CAMERA, HEADLIGHTS, AUTOSAVE_SECONDS, WEAPONS, MISSIONS, makeRng } from './config.js';
@@ -28,9 +37,7 @@ import { Radio } from './radio.js';
 import { Economy } from './economy.js';
 import { SHOTS } from './shots.js';
 
-// ---------------------------------------------------------------------------
-// Bootstrap
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ renderer
 const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -40,18 +47,22 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
 
+// Night-navy base; the fog color is repainted every frame by updateSky().
+const NIGHT_SKY = 0x0b0e14;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0e14);
-scene.fog = new THREE.FogExp2(0x0b0e14, 0.0038);
+scene.background = new THREE.Color(NIGHT_SKY);
+scene.fog = new THREE.FogExp2(NIGHT_SKY, 0.0038);
 
 const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 900);
 
+// Query params: ?shot=NAME stages a deterministic scene, ?seed=N fixes all
+// spawning. Math.random is never used below — everything draws from rng.
 const params = new URLSearchParams(location.search);
 const shotName = params.get('shot');
 const seed = Number(params.get('seed') ?? 1) || 1;
 const rng = makeRng(seed);
-// Math.random is avoided below; all spawning uses rng or a seeded variant.
 
+// ------------------------------------------------------------------ world
 const city = buildCity(scene, rng);
 const sky = new Sky(scene);
 const particles = new Particles(scene);
@@ -59,11 +70,12 @@ const env = buildEnvironment(renderer, scene);
 const input = new Input(canvas);
 const sfx = new Sfx();
 
-// Lights: dim ambient + a sun that orbits through the day cycle.
+// Lights: dim ambient plus a sun that orbits through the day cycle.
 const ambient = new THREE.AmbientLight(0x9fb3d9, 0.7);
 scene.add(ambient);
 const hemi = new THREE.HemisphereLight(0x9fb0ff, 0x241f2e, 0.45);
 scene.add(hemi);
+
 const sun = new THREE.DirectionalLight(0xffdfb0, 1.7);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -73,7 +85,8 @@ sun.shadow.camera.far = 500;
 scene.add(sun);
 scene.add(sun.target);
 
-// Moonlight tint used at night, with soft shadows so streets aren't flat black.
+// Moonlight tint for the night side of the cycle, with soft shadows so the
+// streets never read as flat black.
 const moon = new THREE.DirectionalLight(0x8fa8ff, 0.0);
 moon.castShadow = true;
 moon.shadow.mapSize.set(1024, 1024);
@@ -82,34 +95,33 @@ moon.shadow.camera.top = 160; moon.shadow.camera.bottom = -160;
 moon.shadow.camera.far = 500;
 scene.add(moon);
 
-// Headlight rig: two SpotLights that light the road ahead of the player's car.
-// Re-attached whenever the player steals a different car.
+// Headlight rig: two SpotLights lighting the road ahead of the player's car.
+// The rig is built once per stolen car and reattached whenever they switch.
 function attachHeadlights(car) {
-  if (!car) return;
-  if (!car.headlights) {
-    const mk = (x) => {
-      const s = new THREE.SpotLight(0xfff2d0, 0, HEADLIGHTS.range, HEADLIGHTS.angle, 0.45, 1.4);
-      s.position.set(x, 0.8, 2.2);
-      s.target.position.set(x * 1.6, 0.1, 12);
-      s.shadow.camera.far = HEADLIGHTS.range + 3;
-      car.mesh.add(s, s.target);
-      return s;
-    };
-    car.headlights = [mk(-0.6), mk(0.6)];
-  }
+  // The rig is built once per car and reattached whenever they switch rides.
+  if (!car || car.headlights) return;
+  const makeSpot = (x) => {
+    const s = new THREE.SpotLight(0xfff2d0, 0, HEADLIGHTS.range, HEADLIGHTS.angle, 0.45, 1.4);
+    s.position.set(x, 0.8, 2.2);
+    s.target.position.set(x * 1.6, 0.1, 12);
+    s.shadow.camera.far = HEADLIGHTS.range + 3;
+    car.mesh.add(s, s.target);
+    return s;
+  };
+  car.headlights = [makeSpot(-0.6), makeSpot(0.6)];
 }
+
 function updateHeadlights() {
-  const night = 1 - updateSky.dayAmt;
-  const on = player.inCar && night > 1 - HEADLIGHTS.nightThreshold; // HEADLIGHTS.nightThreshold is dayAmt
+  // HEADLIGHTS.nightThreshold is expressed against dayAmt, not hour.
+  const nightAmt = 1 - updateSky.dayAmt;
+  const shouldRun = player.inCar && nightAmt > 1 - HEADLIGHTS.nightThreshold;
   for (const s of playerCar?.headlights || []) {
-    s.intensity += ((on ? HEADLIGHTS.onIntensity : 0) - s.intensity) * Math.min(1, 0.1);
+    s.intensity += ((shouldRun ? HEADLIGHTS.onIntensity : 0) - s.intensity) * Math.min(1, 0.1);
     s.visible = s.intensity > 1;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Player: articulated rig with head/torso/arms/legs and a held weapon.
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ player
 const playerGroup = playerMesh();
 scene.add(playerGroup);
 
@@ -121,11 +133,11 @@ const player = {
   fireT: 0, phase: 0,
 };
 
+// The player's car object exists from frame one; its mesh appears lazily when
+// they first steal something (see state.stealCar).
 let playerCar = new Vehicle(null, 0, 0, 0, 'player');
-const carMeshHolder = null; // player's car mesh is created lazily when stealing
-const missionMarker = null;
 
-// Weapon fire visuals: tracer lines, pooled.
+// Weapon fire visuals: pooled tracer lines with a short lifetime.
 const tracerMat = new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.9 });
 const tracers = [];
 function spawnTracer(from, to) {
@@ -135,12 +147,11 @@ function spawnTracer(from, to) {
   tracers.push({ line, t: 0.09 });
 }
 
-// ---------------------------------------------------------------------------
-// World actors
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ actors
 const traffic = new Traffic(scene, city, rng);
-// Wire vehicle events into particles + sound.
-const wireVehicleEvents = (v) => {
+
+// Every vehicle gets the same crash/explosion bridge into particles + audio.
+function wireVehicleEvents(v) {
   v.onCrash = (car) => {
     particles.sparks(car.x, 1, car.z);
     if (Math.abs(car.speed) > 8) sfx.crash();
@@ -149,10 +160,12 @@ const wireVehicleEvents = (v) => {
     particles.explosion(car.x, 1, car.z);
     sfx.crash();
   };
-};
+}
 for (const c of traffic.cars) wireVehicleEvents(c);
+
 const peds = new Peds(scene, city, rng);
-// Pedestrian life layer: walk anims, fear of wanted player, district density.
+// Life layer: walk anims, fear of a wanted player, district density. It poses
+// the same rigs after the base ped machine has run for the frame.
 const peds2 = new Peds2(peds, city, rng);
 const police = new Police(scene);
 const mission = new Missions(scene, rng, city, sfx);
@@ -160,12 +173,9 @@ mission.setPlayerRef(player);
 const weather = new Weather(scene, city, rng);
 // Side-job board: races / deliveries / rampage, independent of the main chain.
 const sideJobs = new SideJobs(scene, rng, city, sfx);
-sideJobs.onReward = (cash, name) => {
-  state.money += cash;
-  hud.toast(`Side job paid — ${name} $${cash}`, 4);
-};
-sideJobs.onCrime = () => wantedUp(1, 'pedHit');
 
+// Shared state bag: every system that needs cross-cutting reads/writes hangs
+// off this object rather than reaching into module-level lets.
 const state = {
   money: 0, wanted: 0, time: WORLD.dayLength * 0.7,
   police, traffic,
@@ -175,6 +185,8 @@ const state = {
   player, playerCar,
   hideOverlay: () => overlay.hide(),
   spawnCopAt: (x, z) => {
+    // Police.syncCount builds units itself; this manual path exists for staged
+    // shots, and mirrors its mesh contract (beacons array for the lightbar).
     const mesh = carMesh(0x2a3f8f);
     const beacon = new THREE.Mesh(
       new THREE.BoxGeometry(1.2, 0.22, 0.6),
@@ -182,7 +194,7 @@ const state = {
     );
     beacon.position.set(0, 1.52, -0.3);
     mesh.add(beacon);
-    mesh.userData.beacons = [beacon]; // same contract Police.update uses for its lightbar flash
+    mesh.userData.beacons = [beacon];
     scene.add(mesh);
     const v = new Vehicle(mesh, x, z, Math.atan2(player.x - x, player.z - z), 'police');
     v.fireT = 0;
@@ -193,19 +205,22 @@ const state = {
   particles,
 };
 
-// Police vehicle meshes are built inside Police.syncCount normally; staged shots
-// use spawnCopAt above to build one manually.
+sideJobs.onReward = (cash, name) => {
+  state.money += cash;
+  hud.toast(`Side job paid — ${name} $${cash}`, 4);
+};
+sideJobs.onCrime = () => wantedUp(1, 'pedHit');
 
-// Give saved progress back.
+// Restore saved progress (money + mission index) before anything reads it.
 const saved = loadSave();
 if (saved) {
   state.money = saved.money ?? 0;
   mission.index = Math.min(saved.missionIndex ?? 0, MISSIONS.length);
 }
-// Economy owns upgrades and merges its persisted cash into state.money
-// (only when the main save had none, so the newer save wins).
+// Economy owns upgrades; economy.bind merges its persisted cash into
+// state.money only when the main save carried none, so the newer save wins.
 
-// Start-screen overlay.
+// ------------------------------------------------------------------ UI
 const overlay = Hud.overlay(document.body);
 overlay.show(
   'VICE HORIZON',
@@ -217,22 +232,23 @@ overlay.show(
 );
 
 const hud = new Hud(document.body);
-// Heat-driven star system sits on top of Police: crimes bank heat, cops follow
-// the star count, and heat bleeds off once nobody has eyes on the player.
+// Heat-driven stars on top of Police: crimes bank heat, cops follow the star
+// count, and heat bleeds off once nobody has eyes on the player.
 const wanted = new Wanted(state, sfx, hud);
 const radio = new Radio(sfx);
 const economy = new Economy(scene, city, rng);
 const minimap = new Minimap(document.body, city);
+// Mirror minimap visibility into the HUD (it collapses its panel when hidden).
 minimap.setVisible = ((orig) => (v) => { orig(v); hud.setMinimapVisible(v); })(minimap.setVisible.bind(minimap));
+
 state.wantedSys = wanted;
 state.weather = weather;
 state.radio = radio;
 state.economy = economy;
-// Economy owns upgrades and merges its persisted cash into state.money
-// (only when the main save had none, so the newer save wins).
 economy.bind(state);
-// Shot staging needs the overlay handle, so it runs after its creation below. The
-// fixed-step loop caps catch-up frames per rAF so a slow laptop never spirals.
+
+// Shot staging needs the overlay handle, so it is callable only once the
+// overlay exists (applyShot() runs at the bottom of boot).
 function applyShot() {
   if (!shotName || !SHOTS[shotName]) return false;
   started = true;
@@ -242,26 +258,24 @@ function applyShot() {
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ helpers
 function currentWeapon() { return WEAPONS[player.weaponIndex]; }
 
 // Crime bridge: legacy call sites pass a severity (1 or 2); the Wanted system
-// converts it into heat. Pass an explicit kind when the caller knows better.
+// converts that into heat. Callers that know better pass an explicit kind.
 function wantedUp(amount = 1, kind = null) {
   wanted.crime(kind || (amount >= 2 ? 'policeCarjack' : 'carjack'), 1);
 }
 
 function damagePlayer(d) {
   if (!player.alive) return;
-  let rem = d;
+  let remaining = d;
   if (player.armor > 0) {
-    const absorbed = Math.min(player.armor, rem * PLAYER.armorAbsorb);
+    const absorbed = Math.min(player.armor, remaining * PLAYER.armorAbsorb);
     player.armor -= absorbed;
-    rem -= absorbed;
+    remaining -= absorbed;
   }
-  player.health -= rem;
+  player.health -= remaining;
   if (player.health <= 0) {
     player.health = 0;
     player.alive = false;
@@ -276,32 +290,32 @@ function respawn() {
   player.armor = 0;
   player.alive = true;
   player.x = 8; player.z = 30;
-  // Respawn forgives heat but not all of it: drop two stars' worth so a repeat
-  // offence still escalates, while cops already spawned get cleared below.
+  // Forgiveness, not amnesty: drop two stars' worth of heat so repeat offences
+  // still escalate, then clear cops that already spawned.
   wanted.setHeat(wanted.heat - 200);
   police.clear();
 }
 
-// Enter the nearest car (traffic or the mission car); steal if occupied.
+// Enter the nearest car (traffic or a police cruiser); stealing is implicit.
 function tryEnterCar() {
   if (player.inCar) { exitCar(); return; }
-  let best = null, bd = 4.5 * 4.5;
+  let best = null, bestD2 = 4.5 * 4.5;
   for (const c of traffic.cars) {
     if (c.dead) continue;
     const d2 = (c.x - player.x) ** 2 + (c.z - player.z) ** 2;
-    if (d2 < bd) { bd = d2; best = c; }
+    if (d2 < bestD2) { bestD2 = d2; best = c; }
   }
   for (const u of police.units) {
     if (u.dead) continue;
     const d2 = (u.x - player.x) ** 2 + (u.z - player.z) ** 2;
-    if (d2 < bd) { bd = d2; best = u; }
+    if (d2 < bestD2) { bestD2 = d2; best = u; }
   }
   if (!best) return;
   player.inCar = true;
   player.wasWanted = state.wanted;
   playerCar = best;
   attachHeadlights(playerCar);
-  // Grand theft auto: witnesses call it in (cruiser theft is worse).
+  // Grand theft auto: witnesses call it in; cruiser theft escalates faster.
   wantedUp(best.kind === 'police' ? 2 : 1, best.kind === 'police' ? 'policeCarjack' : 'carjack');
   sfx.pickup();
   hud.toast('Carjacked!');
@@ -317,6 +331,7 @@ function exitCar() {
 function attack() {
   const w = currentWeapon();
   player.fireT = w.rate;
+
   if (w.id === 'fist') {
     sfx.punch();
     const hitPed = peds.killNear(player.x, player.z, w.range);
@@ -324,7 +339,7 @@ function attack() {
       sideJobs.onPedKilled();
       wantedUp(1, 'pedHit');
     }
-    // Also damages cops on foot / rival targets if close.
+    // Fists also land on close rival targets in eliminate jobs.
     for (const t of mission.targets) {
       if (t.kind === 'rival' && !t.done && Math.hypot(t.x - player.x, t.z - player.z) < w.range + 1) {
         t.rivalHp = (t.rivalHp ?? 30) - w.damage;
@@ -336,12 +351,14 @@ function attack() {
     }
     return;
   }
+
   sfx.gunshot();
   peds.setAlarm && peds.setAlarm({ x: player.x, z: player.z });
-  // Ray toward camera direction; hit traffic cars and rivals.
+  // Ray along the player's heading; hits traffic cars and rival lookouts.
   const fx = Math.sin(player.heading), fz = Math.cos(player.heading);
   const origin = new THREE.Vector3(player.x, 1.4, player.z);
   spawnTracer(origin, origin.clone().add(new THREE.Vector3(fx * w.range, 0, fz * w.range)));
+
   for (const c of traffic.cars) {
     const dx = c.x - player.x, dz = c.z - player.z;
     const along = dx * fx + dz * fz;
@@ -367,11 +384,11 @@ function attack() {
       }
     }
   }
-  // Shooting near peds raises heat.
+  // Shooting near peds raises heat even if everything missed.
   if (state.wanted === 0) wantedUp(1, 'gunshot');
 }
 
-// Rival lookouts get a physical body once the eliminate mission starts.
+// Rival lookouts get a physical body once an eliminate mission starts.
 function ensureRivalMeshes() {
   for (const t of mission.targets) {
     if (t.kind === 'rival' && !t.mesh && !t.done) {
@@ -389,9 +406,7 @@ function ensureRivalMeshes() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Camera
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ camera
 let camYaw = 0;
 function updateCamera(dt) {
   const md = input.consumeMouse();
@@ -406,8 +421,9 @@ function updateCamera(dt) {
   const height = player.inCar ? CAMERA.carHeight : CAMERA.footHeight;
   const cx = target.x - Math.sin(camYaw) * back;
   const cz = target.z - Math.cos(camYaw) * back;
-  // Keep the camera out of buildings AND out of the sky: clamp height under the
-  // tallest nearby rooftop minus a margin, and pull the boom in when blocked.
+
+  // Keep the boom out of buildings AND out of the sky: clamp height under the
+  // tallest nearby rooftop minus a margin, and pull in when blocked.
   const hit = resolveCircle(cx, cz, 1.4, city.solids);
   let cy = height;
   for (const s of city.solids) {
@@ -419,39 +435,41 @@ function updateCamera(dt) {
   camera.lookAt(target.x, 1.6, target.z);
 }
 
-// ---------------------------------------------------------------------------
-// Day / night
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ day/night
 function updateSky() {
   const frac = (state.time % WORLD.dayLength) / WORLD.dayLength;
   const ang = frac * Math.PI * 2 - Math.PI / 2;
   const dayAmt = THREE.MathUtils.clamp(Math.sin(ang) * 1.4 + 0.35, 0, 1);
+
   sun.position.set(Math.cos(ang) * 180, Math.sin(ang) * 160 + 20, 60);
   sun.target.position.set(player.x, 0, player.z);
   sun.intensity = 1.7 * dayAmt;
   moon.position.set(-sun.position.x, Math.max(60, -Math.sin(ang) * 160), -40);
   moon.intensity = (1 - dayAmt) * 0.85;
   moon.target.position.set(player.x, 0, player.z);
+
   // Night floor: never let the city go pitch black.
   ambient.intensity = 0.45 + dayAmt * 0.55;
   ambient.color.setHex(dayAmt > 0.5 ? 0x9fb3d9 : 0x5a648a);
   hemi.intensity = 0.28 + dayAmt * 0.35;
   hemi.groundColor.setHex(dayAmt > 0.5 ? 0x241f2e : 0x1b2130);
 
+  // Fog blends day -> dusk -> night.
   const dayCol = new THREE.Color(0x87a8d8);
   const duskCol = new THREE.Color(0x3a2a55);
   const nightCol = new THREE.Color(0x121a2c);
-  const fog = dayCol.clone().lerp(duskCol, 1 - Math.min(1, dayAmt * 1.6)).lerp(nightCol, 1 - dayAmt);
-  scene.fog.color = fog;
-  // Neon windows at night.
-  // Night windows: some lights on, but never a full white wall of dots —
-    // cap the emissive so walls stay dark and windows read as scattered light.
-    city.buildingMats.forEach((m) => { m.emissiveIntensity = (1 - dayAmt) * 0.5; });
+  scene.fog.color = dayCol.clone()
+    .lerp(duskCol, 1 - Math.min(1, dayAmt * 1.6))
+    .lerp(nightCol, 1 - dayAmt);
+
+  // Neon windows: some lights on, but never a full white wall of dots — cap
+  // the emissive so walls stay dark and windows read as scattered light.
+  city.buildingMats.forEach((m) => { m.emissiveIntensity = (1 - dayAmt) * 0.5; });
   city.shopMats.forEach((m) => { m.emissiveIntensity = 0.2 + (1 - dayAmt) * 0.9; });
   if (city.bulbMesh) city.bulbMesh.material.color.setScalar(0.4 + (1 - dayAmt) * 0.6);
-  // Block-level neon pool lights fade in after dusk.
+
+  // Block-level neon pool lights fade in after dusk; signs flicker on.
   for (const nl of city.neonLights) nl.intensity = (1 - dayAmt) * 26;
-  // Neon signs flicker and shine after dusk.
   if (city.signMeshes) {
     const glow = 0.25 + (1 - dayAmt) * 0.75;
     for (const m of city.signMeshes) {
@@ -461,26 +479,25 @@ function updateSky() {
       m.visible = glow > 0.4 && flick > 0.2;
     }
   }
-  // Exported for the sky dome shader.
+
+  // Exported for the sky dome shader and the headlight logic.
   updateSky.fraction = frac;
   updateSky.dayAmt = dayAmt;
-
 }
 
-// ---------------------------------------------------------------------------
-// Main loop
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ main loop
 let last = performance.now();
 let saveT = 0;
 let started = false;
-let forcedShot = null;
+let attackHeld = false;
 
 function tick(now) {
   requestAnimationFrame(tick);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  // Pause: stop the schedule-ahead chain too, so music does not silently queue
-  // while the overlay is up and then dump a burst on resume.
+
+  // Pause: freeze the schedule-ahead chain too, so music does not silently
+  // queue under the overlay and then dump a burst on resume.
   if (state.paused) {
     radio.stop();
     sfx.engineOff();
@@ -491,17 +508,16 @@ function tick(now) {
   state.time += dt;
 
   // ---- Player control ----
-  // One reference for "where the player is" this frame: on foot the ped, in a car the
-  // vehicle. Every system below reads this instead of re-deriving the ternary, so an
-  // enter/exit mid-frame can never leave two systems disagreeing about the body.
+  // One reference for "where the player is" this frame: on foot the ped, in a
+  // car the vehicle. Every system reads this, so an enter/exit mid-frame can
+  // never leave two systems disagreeing about the body.
   const playerRef = player.inCar ? playerCar : player;
   if (started && player.alive) {
     const { f, s } = input.moveAxis();
     if (player.inCar) {
-      const throttle = f;
-      playerCar.drive(throttle, s, dt, city.solids, economy.speedMultiplier());
+      playerCar.drive(f, s, dt, city.solids, economy.speedMultiplier());
       sfx.engine(Math.abs(playerCar.speed) / CAR.maxSpeed);
-      // Running people over raises heat.
+      // Running people over raises heat (above a crawl).
       const hitPed = peds.killNear(playerCar.x, playerCar.z, 2.6);
       if (hitPed) {
         sideJobs.onPedKilled();
@@ -511,14 +527,14 @@ function tick(now) {
       const sprint = input.down('ShiftLeft') || input.down('ShiftRight');
       const spd = sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
       const len = Math.hypot(f, s) || 1;
-      const dirX = (f / len), dirZ = (s / len);
-      // Movement is camera-relative (the stray atan2 ternary from pass 2 is gone:
-      // moveAng was never read, so it is not computed either).
+      const dirX = f / len, dirZ = s / len;
+      // Camera-relative movement.
       if (f || s) {
         const worldAng = camYaw + Math.atan2(dirX, dirZ);
         player.heading = worldAng;
-        const nx = player.x + Math.sin(worldAng) * spd * (Math.abs(f) + Math.abs(s)) / len * dt * Math.sign(f || 1);
-        const nz = player.z + Math.cos(worldAng) * spd * (Math.abs(f) + Math.abs(s)) / len * dt * Math.sign(f || 1);
+        const step = spd * (Math.abs(f) + Math.abs(s)) / len * dt * Math.sign(f || 1);
+        const nx = player.x + Math.sin(worldAng) * step;
+        const nz = player.z + Math.cos(worldAng) * step;
         const hit = resolveCircle(nx, nz, PLAYER.radius, city.solids);
         if (hit.blocked) {
           // Squashed against a wall: keep the old spot so the ped can't tunnel.
@@ -538,13 +554,13 @@ function tick(now) {
 
     // Actions — routed through the input bindings so remaps just work.
     if (input.actionTapped('enter')) tryEnterCar();
-    if (input.actionTapped('weaponNext')) { player.weaponIndex = (player.weaponIndex + 1) % WEAPONS.length; }
-    if (input.actionTapped('weaponPrev')) { player.weaponIndex = (player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length; }
+    if (input.actionTapped('weaponNext')) player.weaponIndex = (player.weaponIndex + 1) % WEAPONS.length;
+    if (input.actionTapped('weaponPrev')) player.weaponIndex = (player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length;
     if (input.actionTapped('job')) mission.advance();
     if (input.tapped('KeyR') && !player.alive) respawn();
     if (input.actionTapped('sideJob')) sideJobs.startNext();
     if (input.actionTapped('map') && minimap) hud.toast(minimap.toggle() ? 'Map shown' : 'Map hidden', 1.5);
-    // Radio: J cycles stations (Shift-J back), K toggles mute — in-car only.
+    // Radio: J cycles stations (Shift-J backwards), K toggles mute — in-car only.
     if (player.inCar) {
       if (input.actionTapped('radio')) {
         const name = input.down('ShiftLeft') || input.down('ShiftRight') ? radio.prev() : radio.next();
@@ -560,6 +576,7 @@ function tick(now) {
       if (input.tapped('KeyV')) economy.buy('speed', player, hud, sfx);
       if (input.tapped('KeyC')) economy.buy('plating', player, hud, sfx);
     }
+
     player.fireT -= dt;
     const w = currentWeapon();
     // Holding LMB fires autos; semi-auto needs a fresh click each time.
@@ -571,27 +588,26 @@ function tick(now) {
   }
 
   // ---- Systems ----
-  // Phase order matters and is deliberate:
-  //   1. traffic   — moves obstacles first, so peds/cops resolve against fresh car boxes
-  //   2. peds      — base state machine (walk / flee / dead)
-  //   3. peds2     — life layer poses the same rigs after the base machine has run
-  //   4. police    — spawn/despawn uses this frame's wanted count
-  //   5. wanted    — heat decay reads police positions from step 4
-  //   6. missions  — objective checks against the final player position
-  //   7. economy   — shop proximity for the same position
-  traffic.update(dt, player.inCar ? playerCar : { x: player.x, z: player.z, onFoot: !player.inCar }, city.solids, (c) => {
-    // Traffic yields / panics near the player; nothing extra needed.
+  // Phase order is deliberate:
+  //   1. traffic  — obstacles move first so later systems resolve fresh boxes
+  //   2. peds     — base state machine (walk / flee / dead)
+  //   3. peds2    — life layer poses the same rigs after the base machine ran
+  //   4. police   — spawn/despawn against this frame's wanted count
+  //   5. wanted   — heat decay reads police positions from step 4
+  //   6. missions — objective checks against the final player position
+  //   7. economy  — shop proximity for the same position
+  traffic.update(dt, player.inCar ? playerCar : { x: player.x, z: player.z, onFoot: !player.inCar }, city.solids, () => {
+    // Traffic yields / panics near the player; nothing extra needed here.
   });
   peds.update(dt, rng, playerRef, city.solids, state.wanted > 0 ? { x: player.x, z: player.z } : null);
-  // Life layer runs after the base state machine so anim poses win the frame.
   peds2.senseThreat(playerRef, state.wanted, dt);
   peds2.update(dt, playerRef, state.wanted);
   peds2.setPlayerFocus(playerRef);
   police.syncCount(state.wanted, dt, playerRef, city.solids, rng, city);
   police.update(dt, playerRef, state, city.solids, rng, damagePlayer);
   wanted.update(dt, playerRef, police, player.inCar);
-  // Wanted decay and heat bookkeeping live in Wanted.update; the loop only
-  // wires the siren to the star count.
+  // The loop only wires the siren to the star count; decay and heat
+  // bookkeeping live inside Wanted.update.
   sfx.siren(state.wanted > 0);
   mission.update(dt, playerRef, { time: state.time });
   sideJobs.update(dt, playerRef, { time: state.time });
@@ -652,11 +668,7 @@ function tick(now) {
   renderer.render(scene, camera);
 }
 
-let attackHeld = false;
-
-// ---------------------------------------------------------------------------
-// Overlay wiring & boot
-// ---------------------------------------------------------------------------
+// ------------------------------------------------------------------ boot
 overlay.btn.addEventListener('click', () => {
   sfx.ensure();
   sfx.resume();
