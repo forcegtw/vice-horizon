@@ -4,12 +4,12 @@
 // walk-up on foot). Purchases and cash persist in their own localStorage key
 // alongside the main save.
 //
-// Design rules:
-//   - Economy owns money flow and its own storage key. Mission rewards may
+// Design rules this module keeps:
+//   - The economy owns money flow and its own storage key. Mission rewards may
 //     still credit state.money directly (Economy.bind() mirrors it here), and
-//     save merges read the same field, so the two can never disagree after bind.
-//   - Every credited/spent amount passes a finite-number guard so a bad value
-//     from a future data-driven table cannot corrupt the ledger.
+//     save merges read the same field, so the two can never disagree on boot.
+//   - Every credited or spent amount passes a finite-number guard, so a bad
+//     value from a future data-driven table cannot corrupt the ledger.
 //   - PRICES and UPGRADES are the single source of truth for both the shop
 //     menu text and the buy() switch; change one, not the other.
 
@@ -18,6 +18,9 @@ import { PLAYER, UPGRADE_HINTS } from './config.js';
 
 const ECO_KEY = 'vice-horizon-economy-v1';
 
+// The shop menu's price list, in dollars. Key order matches the hotkeys of
+// buy() (B health, N armor, V speed, C plating) so the menu reads in the same
+// order the keys sit on the keyboard.
 const PRICES = {
   health: 150,     // full heal at a gas station
   armor: 400,      // full armor refill
@@ -25,6 +28,7 @@ const PRICES = {
   plating: 1800,   // permanent armor upgrade (one-time)
 };
 
+// What each permanent upgrade grants when bought.
 export const UPGRADES = {
   speedBonus: 0.18,   // +18% top speed with the engine tune
   armorBonus: 50,     // extra armor capacity with plating
@@ -45,6 +49,7 @@ export class Economy {
     this.msg = '';
     this.msgT = 0;
     this.shopRadius = 8;       // metres from a canopy that counts as "at the station"
+    this._stationCount = 3;    // stations planted per city grid
 
     this._load();
     this._buildStations();
@@ -99,7 +104,7 @@ export class Economy {
   _buildStations() {
     const lines = this.city.roadLines;
     if (!lines || !lines.length) return;
-    const picks = [0.12, 0.5, 0.86];
+    const picks = [0.12, 0.5, 0.86].slice(0, this._stationCount);
     for (let i = 0; i < picks.length; i++) {
       const lane = lines[Math.floor(picks[i] * lines.length)];
       const along = (picks[(i + 1) % picks.length] - 0.5) * 2 * this.city.half * 0.75;

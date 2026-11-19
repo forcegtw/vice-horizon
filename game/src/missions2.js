@@ -2,21 +2,29 @@
 // rampage contracts, running alongside the story chain. One reused marker per
 // SideJobs instance plus a race start gate; nothing here grows the scene over
 // time. Money is reported through onReward — state.money is credited in
-// main.js, keeping a single writer for cash. Routes/addresses are generated
+// main.js, keeping a single writer for cash. Routes and addresses are rolled
 // per-start from city.roadLines, so payouts scale with haul length. blips()
 // guards a race whose route was never built, and the delivery bonus is clamped
-// so an early haul can never pay more than +25%.
+// so an early haul can never pay more than DELIVERY_BONUS_MAX.
+//
+// Job kinds and their flow:
+//   race     — hit every checkpoint before the clock; marker hops per gate
+//   delivery — pickup point, then a drop-off that needs a car
+//   rampage  — onPedKilled() counts down a target; wanted level climbs too
 
 import * as THREE from '../vendor/three.min.js';
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
 import { makeMarker } from './missions.js';
 
+// Blip and marker colors, one per job kind; shared neutral when idle.
 const JOB_COLORS = {
   race: 0x5fd6ff,
   delivery: 0xffa95f,
   rampage: 0xff5fd6,
 };
+const IDLE_COLOR = 0xffc94a;
+const DIM_BLIP = 0x3f7f9f;
 
 // Static catalogue. Race checkpoint counts and limits are per-job; the actual
 // route and payout roll at startNext().
@@ -33,6 +41,12 @@ export const JOB_CATALOGUE = [
 
 // Delivery speed bonus: max fraction of the base payout added for a fast haul.
 const DELIVERY_BONUS_MAX = 0.25;
+
+// Distance in metres that counts as "reached" for gates, pickups and drops.
+// Gates and drop-offs are a touch more generous than pickups on purpose: at
+// speed 6 m is one frame, while a walk-up pickup should feel deliberate.
+const HIT_RADIUS_GATE = 6;
+const HIT_RADIUS_PICKUP = 5;
 
 export class SideJobs {
   constructor(scene, rng, city, sfx) {
@@ -62,7 +76,7 @@ export class SideJobs {
   }
 
   blipColor() {
-    return this.job ? JOB_COLORS[this.job.kind] || 0xffc94a : 0xffc94a;
+    return this.job ? JOB_COLORS[this.job.kind] || IDLE_COLOR : IDLE_COLOR;
   }
 
   // Minimap hook: remaining race checkpoints (next one bright, rest dim) or the
@@ -74,7 +88,12 @@ export class SideJobs {
       if (!this.job.cps) return out;
       this.job.cps.forEach((c, i) => {
         if (i >= this.progress) {
-          out.push({ x: c.x, z: c.z, color: i === this.progress ? this.blipColor() : 0x3f7f9f, size: i === this.progress ? 5 : 3 });
+          out.push({
+            x: c.x,
+            z: c.z,
+            color: i === this.progress ? this.blipColor() : DIM_BLIP,
+            size: i === this.progress ? 5 : 3,
+          });
         }
       });
     } else {
@@ -141,6 +160,7 @@ export class SideJobs {
     return pts;
   }
 
+  // A random spot on a random road line, inside 80% of the city half-extent.
   streetSpot() {
     const lane = this.city.roadLines[Math.floor(this.rng() * this.city.roadLines.length)];
     const along = (this.rng() - 0.5) * 2 * HALF * 0.8;
@@ -191,8 +211,8 @@ export class SideJobs {
 
   pass() {
     // The job's own payout (delivery bonuses rewrite it) wins over the spec;
-    // clamped so a malformed record can never pay negative cash.
-    const payout = Math.max(0, this.job.payout ?? this.job.spec?.payout ?? 0);
+    // clamped so a malformed record pays nothing, never negative cash.
+    const payout = Math.max(0, this.job.payout ?? 0);
     this.message(`JOB PASSED — $${payout}`, 5);
     this.sfx.cash();
     if (this.onReward) this.onReward(payout, this.job.name);
@@ -218,7 +238,7 @@ export class SideJobs {
 
     if (job.kind === 'race') {
       const cp = job.cps[this.progress];
-      if (d(cp.x, cp.z) < 6) {
+      if (d(cp.x, cp.z) < HIT_RADIUS_GATE) {
         this.progress++;
         this.sfx.pickup();
         if (this.progress >= job.cps.length) return this.pass();
@@ -226,13 +246,13 @@ export class SideJobs {
         this.message(`Checkpoint ${this.progress}/${job.cps.length} — ${Math.ceil(this.timer)}s left`, 2);
       }
     } else if (job.kind === 'delivery') {
-      if (job.stage === 'pickup' && d(job.px, job.pz) < 5) {
+      if (job.stage === 'pickup' && d(job.px, job.pz) < HIT_RADIUS_PICKUP) {
         job.stage = 'dropoff';
         this.setMarkerAt({ x: job.tx, z: job.tz }, JOB_COLORS.delivery);
         this.message('Package secured. Haul it to the drop-off.', 3);
         this.sfx.pickup();
-      } else if (job.stage === 'dropoff' && d(job.tx, job.tz) < 6 && player.inCar) {
-        // Up to +25% if over half the clock remains; 0% at half or below.
+      } else if (job.stage === 'dropoff' && d(job.tx, job.tz) < HIT_RADIUS_GATE && player.inCar) {
+        // Up to DELIVERY_BONUS_MAX if over half the clock remains; 0% at half or below.
         const bonus = Math.max(0, Math.min(1, this.timer / job.limit - 0.5) * 2);
         job.payout = Math.round(job.payout * (1 + DELIVERY_BONUS_MAX * bonus));
         return this.pass();
