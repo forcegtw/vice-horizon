@@ -20,6 +20,8 @@ import { Hud } from './hud.js';
 import { Sky } from './sky.js';
 import { Particles } from './particles.js';
 import { loadSave, writeSave } from './save.js';
+import { Weather } from './weather.js';
+import { Wanted } from './wanted.js';
 import { SHOTS } from './shots.js';
 
 // ---------------------------------------------------------------------------
@@ -149,6 +151,7 @@ const peds = new Peds(scene, city, rng);
 const police = new Police(scene);
 const mission = new Missions(scene, rng, city, sfx);
 mission.setPlayerRef(player);
+const weather = new Weather(scene, city, rng);
 
 const state = {
   money: 0, wanted: 0, time: WORLD.dayLength * 0.7,
@@ -198,6 +201,11 @@ overlay.show(
 );
 
 const hud = new Hud(document.body);
+// Heat-driven star system sits on top of Police: crimes bank heat, cops follow
+// the star count, and heat bleeds off once nobody has eyes on the player.
+const wanted = new Wanted(state, sfx, hud);
+state.wantedSys = wanted;
+state.weather = weather;
 // Shot staging needs the overlay handle, so it runs after its creation below. The
 // fixed-step loop caps catch-up frames per rAF so a slow laptop never spirals.
 function applyShot() {
@@ -214,11 +222,10 @@ function applyShot() {
 // ---------------------------------------------------------------------------
 function currentWeapon() { return WEAPONS[player.weaponIndex]; }
 
-function wantedUp(amount = 1) {
-  state.wanted = Math.min(POLICE.maxWanted, state.wanted + amount);
-  state.wantedCooldown = POLICE.despawnCooldown;
-  sfx.wantedUp();
-  hud.toast(`WANTED — ${'★'.repeat(state.wanted)}`);
+// Crime bridge: legacy call sites pass a severity (1 or 2); the Wanted system
+// converts it into heat. Pass an explicit kind when the caller knows better.
+function wantedUp(amount = 1, kind = null) {
+  wanted.crime(kind || (amount >= 2 ? 'policeCarjack' : 'carjack'), 1);
 }
 
 function damagePlayer(d) {
@@ -244,7 +251,8 @@ function respawn() {
   player.armor = 0;
   player.alive = true;
   player.x = 8; player.z = 30;
-  state.wanted = Math.max(0, state.wanted - 2);
+  wanted.heat = Math.max(0, wanted.heat - 200);
+  wanted._syncStars(false);
   police.clear();
 }
 
@@ -258,6 +266,7 @@ function tryEnterCar() {
     if (d2 < bd) { bd = d2; best = c; }
   }
   for (const u of police.units) {
+    if (u.dead) continue;
     const d2 = (u.x - player.x) ** 2 + (u.z - player.z) ** 2;
     if (d2 < bd) { bd = d2; best = u; }
   }
@@ -266,8 +275,8 @@ function tryEnterCar() {
   player.wasWanted = state.wanted;
   playerCar = best;
   attachHeadlights(playerCar);
-  // Grand theft auto: witnesses call it in.
-  wantedUp(best.kind === 'police' ? 2 : 1);
+  // Grand theft auto: witnesses call it in (cruiser theft is worse).
+  wantedUp(best.kind === 'police' ? 2 : 1, best.kind === 'police' ? 'policeCarjack' : 'carjack');
   sfx.pickup();
   hud.toast('Carjacked!');
 }
@@ -285,7 +294,7 @@ function attack() {
   if (w.id === 'fist') {
     sfx.punch();
     const hitPed = peds.killNear(player.x, player.z, w.range);
-    if (hitPed) wantedUp(1);
+    if (hitPed) wantedUp(1, 'pedHit');
     // Also damages cops on foot / rival targets if close.
     for (const t of mission.targets) {
       if (t.kind === 'rival' && !t.done && Math.hypot(t.x - player.x, t.z - player.z) < w.range + 1) {
@@ -310,7 +319,7 @@ function attack() {
     const side = Math.abs(dx * fz - dz * fx);
     if (along > 0 && along < w.range && side < 1.6) {
       c.takeDamage(w.damage);
-      if (c.dead) wantedUp(1);
+      if (c.dead) wantedUp(1, 'vehicleDestroyed');
       break;
     }
   }
@@ -330,7 +339,7 @@ function attack() {
     }
   }
   // Shooting near peds raises heat.
-  if (state.wanted === 0) wantedUp(1);
+  if (state.wanted === 0) wantedUp(1, 'gunshot');
 }
 
 // Rival lookouts get a physical body once the eliminate mission starts.
@@ -454,7 +463,7 @@ function tick(now) {
       sfx.engine(Math.abs(playerCar.speed) / CAR.maxSpeed);
       // Running people over raises heat.
       const hitPed = peds.killNear(playerCar.x, playerCar.z, 2.6);
-      if (hitPed && Math.abs(playerCar.speed) > 4) wantedUp(1);
+      if (hitPed && Math.abs(playerCar.speed) > 4) wantedUp(1, 'pedHit');
     } else {
       const sprint = input.down('ShiftLeft') || input.down('ShiftRight');
       const spd = sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
@@ -505,24 +514,13 @@ function tick(now) {
   peds.update(dt, rng, player.inCar ? playerCar : player, city.solids, state.wanted > 0 ? { x: player.x, z: player.z } : null);
   police.syncCount(state.wanted, dt, player.inCar ? playerCar : player, city.solids, rng, city);
   police.update(dt, player.inCar ? playerCar : player, state, city.solids, rng, damagePlayer);
-  if (state.wanted > 0) {
-    sfx.siren(true);
-    state.wantedCooldown -= dt;
-    if (state.wantedCooldown <= 0 && police.units.length === 0) {
-      state.wanted = 0;
-    }
-  } else {
-    sfx.siren(false);
-  }
+  wanted.update(dt, player.inCar ? playerCar : player, police, player.inCar);
+  // Wanted decay and heat bookkeeping live in Wanted.update; the loop only
+  // wires the siren to the star count.
+  sfx.siren(state.wanted > 0);
   mission.update(dt, player.inCar ? playerCar : player, { time: state.time });
   ensureRivalMeshes();
   mission.collectReward(state);
-
-  // Wanted decay when out of sight.
-  if (state.wanted > 0 && police.units.length === 0) {
-    state.wantedCooldown -= dt;
-    if (state.wantedCooldown <= 0) state.wanted = 0;
-  }
 
   // ---- Visuals ----
   if (!player.inCar) {
@@ -547,6 +545,7 @@ function tick(now) {
     }
   }
   particles.update(dt);
+  weather.update(dt, player.inCar ? playerCar : player);
 
   // Speed-reactive FOV: a subtle cinematic push at high speed.
   const speedRatio = player.inCar ? Math.abs(playerCar.speed) / CAR.maxSpeed : 0;
@@ -558,7 +557,7 @@ function tick(now) {
   sky.update(updateSky.fraction, sun.position.clone().normalize(), updateSky.dayAmt);
   updateHeadlights();
   updateCamera(dt);
-  hud.update(state, player, playerCar, mission, currentWeapon());
+  hud.update(state, player, playerCar, mission, currentWeapon(), weather.label());
 
   // Autosave every 10 s.
   saveT += dt;

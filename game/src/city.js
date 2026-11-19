@@ -624,6 +624,7 @@ export function buildCity(scene, rng) {
 
   return {
     group,
+    road,
     solids,
     lamps,
     bulbMesh,

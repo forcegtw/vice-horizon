@@ -83,7 +83,7 @@ export class Hud {
     };
   }
 
-  update(state, player, car, mission, weapon) {
+  update(state, player, car, mission, weapon, weatherLabel) {
     // Title screen: keep the HUD clean, show it only once the game starts.
     const started = !!(state.overlay && state.overlay.hidden);
     if (this.hudEl) this.hudEl.style.visibility = started ? 'visible' : 'hidden';
@@ -96,7 +96,13 @@ export class Hud {
     this.el.speedo.textContent = player.inCar ? `${Math.round(Math.abs(car.speed) * 3.6)} km/h` : '';
     const hour = Math.floor((state.time / WORLD.dayLength) * 24) % 24;
     const min = Math.floor(((state.time / WORLD.dayLength) * 24 % 1) * 60);
-    this.el.clock.textContent = `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    // Clock + weather readout: one composed string, written only when it changes.
+    const clockText = `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}` +
+      (weatherLabel ? `  ${weatherLabel}` : '');
+    if (clockText !== this._lastClock) {
+      this._lastClock = clockText;
+      this.el.clock.textContent = clockText;
+    }
 
     if (this.toastT > 0) {
       this.toastT -= 1 / 60;
