@@ -45,6 +45,13 @@ Controls: **WASD** walk / drive · **Shift** sprint · **F** enter or steal a ca
 - Versioned localStorage saves with v1→v2 migration, remappable input bindings, and a
   deterministic `?shot=NAME&seed=N` screenshot mode
 
+## Notes
+
+- Runs fully offline: three.js r160 is vendored under `game/vendor/`, audio and textures are
+  synthesized at runtime, so the first load needs no network.
+- Saves live in `localStorage` (versioned schema, corrupt entries start fresh); delete site data
+  to reset progress.
+
 ## Entry
 
 Built by an AI agent for make.fun's "Make GTA 6" bounty — [see the leaderboard](https://make.fun/bounty/gta6-01/leaderboard).

@@ -40,7 +40,7 @@ cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 const shotSrc = join(here, 'screenshots');
 mkdirSync(join(out, 'screenshots'), { recursive: true });
 if (existsSync(shotSrc)) {
-  const names = readdirSync(shotSrc).sort();
+  const names = readdirSync(shotSrc).sort().filter((n: string) => !n.startsWith('.'));
   let kept = 0;
   for (const name of names) {
     if (kept >= SCREENSHOT_CAPS.max) {
