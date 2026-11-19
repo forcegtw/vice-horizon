@@ -1,25 +1,25 @@
-// Input handling: keyboard state, pointer look, and pause/menu toggles.
-// Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent;
-// keydown repeat events are ignored — holding a key relies on the Set state only.
-// preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.
-// Blur clears keys, tapped state and the pressed mouse button, so resume starts
-// from a clean slate and refocusing after an alt-tab can't leave the weapon firing.
-// Game actions are defined as an action->codes map so rebinding is a one-liner
-// (Input.rebind('enter', ['KeyF'])) instead of an edit inside moveAxis / the loop.
-// Keys the browser would otherwise scroll or navigate with (arrows, Space, Tab)
-// are listed here once; the keydown handler preventDefaults exactly this set.
+// input.js — keyboard state, pointer look, and action bindings.
+// Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay
+// consistent; keydown repeats are ignored — holding a key relies on the Set
+// only. Actions are defined as an action->codes map so rebinding is
+// Input.rebind('enter', ['KeyF']) instead of an edit inside the loop.
+// preventDefault is scoped to exactly the keys the browser would scroll or
+// navigate with; game letters stay untouched so devtools typing still works.
+// Blur clears keys, taps and the mouse button, so refocus after alt-tab can
+// never resume with the weapon firing.
+
 const BROWSER_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'];
 
 export class Input {
   constructor(canvas) {
-    this.keys = new Set();
+    this.keys = new Set();        // currently held codes
     this.mouseDX = 0;
     this.mouseDY = 0;
     this.dragging = false;
-    this.firing = false;
-    this._pressedOnce = new Set();
+    this.firing = false;          // LMB held
+    this._pressedOnce = new Set(); // fresh presses not yet consumed
 
-    // Action bindings: each action matches ANY of its bound physical codes.
+    // Action bindings: an action matches ANY of its bound physical codes.
     this.bindings = {
       forward: ['KeyW', 'ArrowUp'],
       back: ['KeyS', 'ArrowDown'],
@@ -39,13 +39,18 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       this._pressedOnce.add(e.code);
-      // preventDefault only on keys the browser would otherwise scroll / navigate
-      // with; game letters (F, T, G…) stay untouched so typing in devtools works.
       if (BROWSER_KEYS.includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => { this.keys.clear(); this.firing = false; this.dragging = false; });
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this._pressedOnce.clear();
+      this.firing = false;
+      this.dragging = false;
+    });
 
+    // Pointer drag = camera look. movementX/Y only accumulates while dragging,
+    // so a stray mouse move over the page never swings the camera.
     canvas.addEventListener('pointerdown', (e) => {
       this.dragging = true;
       canvas.setPointerCapture(e.pointerId);
@@ -72,7 +77,7 @@ export class Input {
     return false;
   }
 
-  // Rebind an action to a new set of codes (swap mid-session with no restart).
+  // Swap an action's codes mid-session, no restart needed.
   rebind(action, codes) {
     if (action in this.bindings) this.bindings[action] = codes.slice();
   }
@@ -82,7 +87,7 @@ export class Input {
     return this.bindings[action].some((c) => this.tapped(c));
   }
 
-  // Movement axes for the current frame: forward, strafe in [-1, 1].
+  // Movement axes for this frame: forward and strafe in [-1, 1].
   moveAxis() {
     let f = 0, s = 0;
     if (this.bindings.forward.some((c) => this.down(c))) f += 1;
@@ -92,12 +97,15 @@ export class Input {
     return { f, s };
   }
 
+  // Camera deltas since the last read; resets the accumulator.
   consumeMouse() {
     const d = { x: this.mouseDX, y: this.mouseDY };
-    this.mouseDX = 0; this.mouseDY = 0;
+    this.mouseDX = 0;
+    this.mouseDY = 0;
     return d;
   }
 
+  // End-of-frame: consumed taps must not fire again next frame.
   endFrame() {
     this._pressedOnce.clear();
   }

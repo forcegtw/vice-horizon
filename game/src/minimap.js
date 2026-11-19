@@ -1,20 +1,21 @@
-// minimap.js — dedicated minimap module: a larger, toggleable (M) canvas
-// map with roads from the city grid, player arrow, side-job blips, mission
-// markers and police blips when wanted. Owns its own canvas + HUD chip so the
-// existing Hud minimap stays untouched; Hud just calls hud.setMinimapVisible()
-// to hide its copy when this one is up. Coarse redraw timer, not per-frame.
-// The toggle label tracks state on both open and close.
+// minimap.js — the full-city map overlay (M to toggle). Owns its own canvas
+// and label chip; hud.js hides its corner radar while this is up via
+// hud.setMinimapVisible, which main.js wraps around setVisible. The static
+// road layer is baked once to an offscreen canvas — the grid never changes, so
+// each redraw is one drawImage plus dynamic blips. Redraws are throttled to
+// ~10 Hz; a map has no per-frame state that needs more.
 
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
 
-const SIZE = 230;
-const REDRAW_INTERVAL = 0.1;  // seconds between big-map redraws (~10 Hz)
+const SIZE = 230;              // canvas edge in px (square)
+const BORDER = 20;             // world metres of margin baked around the city
+const REDRAW_INTERVAL = 0.1;   // seconds between redraws
 
 export class Minimap {
   constructor(root, city) {
     this.city = city;
-    this.visible = false;   // off by default; M toggles
+    this.visible = false;      // off by default; M toggles
     root.insertAdjacentHTML('beforeend', `
       <div id="mm2" style="position:absolute;right:16px;top:60px;display:none;pointer-events:none;">
         <canvas id="mm2c" width="${SIZE}" height="${SIZE}"
@@ -27,8 +28,7 @@ export class Minimap {
     this.g = this.canvas.getContext('2d');
     this.redrawT = 0;
 
-    // Pre-bake the static road layer to an offscreen canvas once: the grid
-    // never changes, so the per-redraw cost is one drawImage.
+    // Pre-baked static layer: lots + streets + waterfront accent.
     this.roadLayer = document.createElement('canvas');
     this.roadLayer.width = this.roadLayer.height = SIZE;
     this.bakeRoads();
@@ -42,19 +42,18 @@ export class Minimap {
   setVisible(v) {
     this.visible = v;
     this.el.style.display = v ? 'block' : 'none';
-    // Label follows the state: it used to be static text that lied on reopen.
+    // Label tracks state on both open and close, so it never lies.
     if (this.label) this.label.textContent = v ? 'M — hide map' : 'M — show map';
   }
 
-  // Static layer: streets + block fills, north-up, whole city in frame.
   bakeRoads() {
     const g = this.roadLayer.getContext('2d');
-    const s = SIZE / (HALF * 2 + 40); // world → px, small border
-    const to = (v) => (v + HALF + 20) * s;
+    const s = SIZE / (HALF * 2 + BORDER * 2);
+    const to = (v) => (v + HALF + BORDER) * s;
     g.fillStyle = '#10131b';
     g.fillRect(0, 0, SIZE, SIZE);
-    // Blocks: slightly lighter fill for the lots. Fill spans run to the next
-    // block's street edge, so the street stroke below paints the roads on top.
+    // Lot fills run to the next block's street edge; the road stroke below
+    // paints over the gap, so streets read as continuous ribbons.
     g.fillStyle = '#1a1f2c';
     const nb = WORLD.blocks + 1;
     for (let i = 0; i < nb - 1; i++) {
@@ -64,7 +63,7 @@ export class Minimap {
         g.fillRect(to(x0), to(z0), WORLD.lotSize * s - WORLD.roadWidth * s, WORLD.lotSize * s - WORLD.roadWidth * s);
       }
     }
-    // Streets: centre lines stroked at road width.
+    // Streets: one stroke per axis at road width.
     g.strokeStyle = '#3d4557';
     g.lineWidth = WORLD.roadWidth * s;
     g.beginPath();
@@ -74,7 +73,7 @@ export class Minimap {
       g.moveTo(to(-HALF), c); g.lineTo(to(HALF), c);
     }
     g.stroke();
-    // Waterfront strip accent along the west edge.
+    // Waterfront accent along the west edge.
     g.strokeStyle = '#2c5f8a';
     g.lineWidth = 3;
     g.beginPath();
@@ -82,21 +81,19 @@ export class Minimap {
     g.stroke();
   }
 
-  // Per-frame tick but with an internal coarse redraw timer; dt clamps the
-  // redraw to ~10 Hz which is plenty for a map.
+  // Coarse tick: dt clamps the redraw rate; skipped entirely while hidden.
   update(dt, player, playerCar, mission, sideJobs, state) {
     if (!this.visible) return;
     this.redrawT -= dt;
     if (this.redrawT > 0) return;
-    // 10 Hz redraw: a map has no per-frame state, so this stays plenty smooth.
     this.redrawT = REDRAW_INTERVAL;
     this.draw(player, playerCar, mission, sideJobs, state);
   }
 
   draw(player, playerCar, mission, sideJobs, state) {
     const g = this.g;
-    const s = SIZE / (HALF * 2 + 40);
-    const to = (v) => (v + HALF + 20) * s;
+    const s = SIZE / (HALF * 2 + BORDER * 2);
+    const to = (v) => (v + HALF + BORDER) * s;
     const px = player.inCar ? playerCar.x : player.x;
     const pz = player.inCar ? playerCar.z : player.z;
     const heading = player.inCar ? playerCar.heading : player.heading;
@@ -104,7 +101,7 @@ export class Minimap {
     g.clearRect(0, 0, SIZE, SIZE);
     g.drawImage(this.roadLayer, 0, 0);
 
-    // Side-job blips: route checkpoints (race) or pickup/drop-off chain.
+    // Side-job blips: race route chain or the delivery objective.
     if (sideJobs && sideJobs.state === 'active') {
       for (const b of sideJobs.blips()) {
         g.fillStyle = '#' + b.color.toString(16).padStart(6, '0');
@@ -114,7 +111,7 @@ export class Minimap {
       }
     }
 
-    // Main mission marker: pulsing gold ring + dot.
+    // Story marker: pulsing gold ring + dot.
     if (mission.marker.visible) {
       const mx = to(mission.marker.position.x);
       const mz = to(mission.marker.position.z);
@@ -129,7 +126,7 @@ export class Minimap {
       g.fill();
     }
 
-    // Police blips: brighter + larger as the star count climbs.
+    // Police blips grow with the star count.
     if (state.wanted > 0) {
       const r = 2 + state.wanted;
       g.fillStyle = '#ff5f5f';
@@ -141,14 +138,15 @@ export class Minimap {
       }
     }
 
-    // Traffic flecks, dim so they never shout over blips.
+    // Traffic flecks, dim — never louder than the blips.
     g.fillStyle = '#6f7890';
     for (const c of state.traffic.cars) {
       if (c.dead) continue;
       g.fillRect(to(c.x) - 1, to(c.z) - 1, 2, 2);
     }
 
-    // Player arrow, rotated to heading.
+    // Player arrow, rotated to heading. North-up map: unlike the corner radar
+    // this one never rotates, so the compass N below never moves.
     g.save();
     g.translate(to(px), to(pz));
     g.rotate(heading);
@@ -162,8 +160,6 @@ export class Minimap {
     g.fill();
     g.restore();
 
-    // Compass tick: a small N in the top-right corner (the map is north-up,
-    // unlike the rotating corner radar, so this N never moves).
     g.fillStyle = '#9fb0d8';
     g.font = 'bold 11px sans-serif';
     g.fillText('N', SIZE - 16, 14);

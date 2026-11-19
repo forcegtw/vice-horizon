@@ -1,21 +1,20 @@
-// HUD: health/armor/money/wanted bars, minimap canvas with blips, mission text,
-// speedometer, radio and weather readouts, and the start / pause / game-over
-// overlays. Pure DOM + 2D canvas; dirty-value caches keep unchanged bars and
-// readouts from redrawing each frame. DOM updates are gated by those caches —
-// never write textContent directly from the loop — and the overlay is class-driven.
-// Layout lives in one scoped <style> block with named blocks (vitals / radar /
-// status); the corner radar gets a real drawn frame (bezel, corner ticks, north tick).
+// hud.js — DOM + 2D-canvas HUD: cash, wanted stars, weapon, health/armor bars,
+// corner radar (canvas, north-up? no — rotates so up is forward), speedometer,
+// clock + weather, radio readout, mission banner, toasts, and the start/pause
+// overlay (built by the static Hud.overlay). Every text/width write passes a
+// dirty-value cache first, so a steady frame touches zero DOM nodes. The
+// overlay is class-driven; layout lives in one scoped style block injected once.
 
-import { WORLD, MISSIONS } from './config.js';
+import { WORLD } from './config.js';
 import { HALF } from './city.js';
 
-// One source of truth for the corner radar: the canvas element, its clip radius and
-// the world metres it spans all derive from here, so a resize is a single edit.
+// Corner radar geometry: one source of truth for canvas size, world span and
+// the drawn bezel, so a resize is a single edit.
 const MINIMAP = {
   size: 200,       // CSS + backing-store pixels (square)
   view: 220,       // world metres visible across the radar
-  bezel: 3,        // drawn bezel thickness in pixels
-  radius: 14,      // corner rounding of the clip
+  bezel: 3,        // drawn bezel thickness in px
+  radius: 14,      // clip corner rounding
 };
 
 const STYLE_ID = 'vh-hud-style';
@@ -48,10 +47,14 @@ const CSS = `
 #hud .vh-hidden { display: none !important; }
 `;
 
+// Fixed step for the toast countdown: update() gets no dt, and a banner only
+// needs to hide itself — 1/60 per HUD frame is close enough.
+const TOAST_STEP = 1 / 60;
+// Bars re-write below this delta in percent.
+const BAR_EPSILON = 0.4;
+
 export class Hud {
   constructor(root) {
-    // Font + scoped style sheet: injected once, so the HUD markup below stays declarative.
-    document.fonts && (root.style.fontFamily = "'Segoe UI',system-ui,sans-serif");
     if (!document.getElementById(STYLE_ID)) {
       const style = document.createElement('style');
       style.id = STYLE_ID;
@@ -96,14 +99,14 @@ export class Hud {
     };
     this.mm = this.el.minimap.getContext('2d');
     this.toastT = 0;
+    this._mmExternal = false;
 
-    // Dirty-value cache: every text/width write below is compared against these
-    // first, so a steady frame touches zero DOM nodes.
+    // Dirty-value cache: compared before every write below.
     this._last = { cash: '', stars: '', weapon: '', hp: -1, ap: -1, speedo: '', radio: '', clock: '', mission: '', watching: -1 };
   }
 
-  // Minimap module (minimap.js) calls this when its big map shows/hides so the
-  // two maps never stack. Falls back to no-op if the module is absent.
+  // The big-map module calls this through its wrapped setVisible so the corner
+  // radar and the overlay never stack. No-op-safe when the module is absent.
   setMinimapVisible(visible) {
     this._mmExternal = visible;
     this.el.radar.classList.toggle('vh-hidden', !!visible);
@@ -115,7 +118,8 @@ export class Hud {
     this.toastT = seconds;
   }
 
-  // Overlay screens: title, pause, game over, and the in-mission brief panel.
+  // Title / pause / game-over screens. Returns a small handle: {el,title,sub,
+  // keys,btn,hidden,show,hide} — main.js owns the click wiring.
   static overlay(root) {
     root.insertAdjacentHTML('beforeend', `
       <div id="overlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 40%, #1a213866, #05070d33);z-index:20;">
@@ -142,14 +146,18 @@ export class Hud {
         this.keys.innerHTML = keys;
         this.btn.textContent = btnText;
       },
-      hide() { ov.style.display = 'none'; this.hidden = true; },
+      hide() {
+        ov.style.display = 'none';
+        this.hidden = true;
+      },
     };
   }
 
   update(state, player, car, mission, weapon, weatherLabel, radioLabel) {
-    // Title screen: keep the HUD clean, show it only once the game starts.
+    // HUD stays invisible behind the title screen, appears once the game starts.
     const started = !!(state.overlay && state.overlay.hidden);
-    if (this.hudEl && started !== this._last.watching && (this._last.watching = Number(started)) >= 0) {
+    if (started !== !!this._last.watching) {
+      this._last.watching = Number(started);
       this.hudEl.style.visibility = started ? 'visible' : 'hidden';
     }
 
@@ -158,22 +166,23 @@ export class Hud {
       this._last.cash = cash;
       this.el.cash.textContent = cash;
     }
+
     const stars = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
     if (stars !== this._last.stars) {
       this._last.stars = stars;
       this.el.wanted.textContent = stars;
-      // Heat tint: the star row warms from orange to red as the level climbs.
+      // Star row warms from orange to red as the level climbs.
       this.el.wanted.style.color = state.wanted > 2 ? '#ff3d3d' : '#ff8a5f';
     }
+
     if (weapon.name !== this._last.weapon) {
       this._last.weapon = weapon.name;
       this.el.weapon.textContent = weapon.name;
     }
 
-    // Bars: both width and percentage are dirty-checked, and armor only appears
-    // once the player owns some (a permanent 0% bar is visual noise).
+    // Bars: armor only shows once the player owns some.
     const hp = Math.max(0, Math.min(100, player.health));
-    if (Math.abs(hp - this._last.hp) > 0.4) {
+    if (Math.abs(hp - this._last.hp) > BAR_EPSILON) {
       this._last.hp = hp;
       this.el.hp.style.width = `${hp}%`;
       this.el.hp.style.background = hp < 30
@@ -181,7 +190,7 @@ export class Hud {
         : 'linear-gradient(90deg,#2f8f47,#7ee08a)';
     }
     const ap = Math.max(0, Math.min(100, player.armor));
-    if (Math.abs(ap - this._last.ap) > 0.4) {
+    if (Math.abs(ap - this._last.ap) > BAR_EPSILON) {
       this._last.ap = ap;
       this.el.ap.style.width = `${ap}%`;
     }
@@ -193,15 +202,16 @@ export class Hud {
       this.el.speedo.style.display = speedo ? '' : 'none';
     }
 
-    // Radio readout sits above the speedo; empty when on foot.
     const radioText = radioLabel || '';
     if (radioText !== this._last.radio) {
       this._last.radio = radioText;
       this.el.radio.textContent = radioText;
     }
 
-    const hour = Math.floor((state.time / WORLD.dayLength) * 24) % 24;
-    const min = Math.floor((((state.time / WORLD.dayLength) * 24) % 1) * 60);
+    // Day clock from the world time; weather label rides the same panel.
+    const dayFrac = (state.time / WORLD.dayLength) % 1;
+    const hour = Math.floor(dayFrac * 24);
+    const min = Math.floor((dayFrac * 24 % 1) * 60);
     const clockText = `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}` +
       (weatherLabel ? `  ${weatherLabel}` : '');
     if (clockText !== this._last.clock) {
@@ -210,13 +220,12 @@ export class Hud {
     }
 
     if (this.toastT > 0) {
-      // Fixed-step decay (1/60 per HUD frame); close enough for a countdown that
-      // only hides a banner, and it needs no dt plumbed through update().
-      this.toastT -= 1 / 60;
+      this.toastT -= TOAST_STEP;
       if (this.toastT <= 0) this.el.toast.style.display = 'none';
     }
 
-    // Mission banner: one composed string so the countdown never flickers the panel.
+    // Mission banner: one composed string (brief + countdown) so the panel
+    // never flickers between updates.
     let missionText = '';
     if (mission.msgT > 0) {
       missionText = mission.msg;
@@ -227,45 +236,49 @@ export class Hud {
     if (missionText !== this._last.mission) {
       this._last.mission = missionText;
       this.el.mission.textContent = missionText;
-      // Hidden while empty so the reserved bottom strip never shows an empty panel.
       this.el.mission.style.display = missionText ? 'block' : 'none';
     }
 
     this.drawMinimap(state, player, car, mission);
   }
 
-  // Skip the small map's redraw while the big minimap module is showing.
+  // Corner radar: rotating (up is forward), rounded-clip, bezel + ticks drawn
+  // after the clipped content so the frame sits proud. Skipped entirely while
+  // the big-map module is showing.
   drawMinimap(state, player, car, mission) {
     if (this._mmExternal) return;
     const g = this.mm;
     const S = MINIMAP.size;
     const R = S / 2;
     const scale = S / MINIMAP.view;
+    const px = player.inCar ? car.x : player.x;
+    const pz = player.inCar ? car.z : player.z;
+    const heading = player.inCar ? car.heading : player.heading;
 
     g.clearRect(0, 0, S, S);
-
-    // Rounded clip: everything drawn below stays inside the bezel.
     g.save();
     g.beginPath();
-    if (g.roundRect) g.roundRect(MINIMAP.bezel, MINIMAP.bezel, S - MINIMAP.bezel * 2, S - MINIMAP.bezel * 2, MINIMAP.radius);
-    else g.rect(MINIMAP.bezel, MINIMAP.bezel, S - MINIMAP.bezel * 2, S - MINIMAP.bezel * 2);
+    if (g.roundRect) {
+      g.roundRect(MINIMAP.bezel, MINIMAP.bezel, S - MINIMAP.bezel * 2, S - MINIMAP.bezel * 2, MINIMAP.radius);
+    } else {
+      g.rect(MINIMAP.bezel, MINIMAP.bezel, S - MINIMAP.bezel * 2, S - MINIMAP.bezel * 2);
+    }
     g.clip();
 
-    // Paper: dark radial so the map edges fall off instead of ending flat.
+    // Paper: dark radial so the edges fall off instead of ending flat.
     const bg = g.createRadialGradient(R, R, R * 0.2, R, R, R);
     bg.addColorStop(0, '#161c28');
     bg.addColorStop(1, '#0a0d13');
     g.fillStyle = bg;
     g.fillRect(0, 0, S, S);
 
-    // World layer, rotated so up is always forward.
+    // World layer, rotated so up is always the player's forward.
     g.save();
     g.translate(R, R);
-    g.rotate(-(player.inCar ? car.heading : player.heading));
+    g.rotate(-heading);
     g.scale(scale, scale);
-    g.translate(-(player.inCar ? car.x : player.x), -(player.inCar ? car.z : player.z));
+    g.translate(-px, -pz);
 
-    // Streets: one stroked path for the whole grid.
     g.strokeStyle = '#39414f';
     g.lineWidth = WORLD.roadWidth * 0.75;
     g.lineCap = 'butt';
@@ -278,7 +291,7 @@ export class Hud {
     }
     g.stroke();
 
-    // Mission marker blip with a soft halo so it reads over the road lines.
+    // Story marker blip with a soft halo.
     if (mission.marker.visible) {
       const mx = mission.marker.position.x;
       const mz = mission.marker.position.z;
@@ -292,7 +305,7 @@ export class Hud {
       g.fill();
     }
 
-    // Cops: red dots; larger as the star count climbs.
+    // Cops: red dots, larger as the star count climbs.
     const copR = (3.4 + state.wanted * 0.4) / scale;
     g.fillStyle = '#ff5f5f';
     for (const u of state.police.units) {
@@ -301,7 +314,8 @@ export class Hud {
       g.arc(u.x, u.z, copR, 0, Math.PI * 2);
       g.fill();
     }
-    // Traffic: dim flecks, kept square so they never read as blips.
+
+    // Traffic: dim square flecks, so they never read as blips.
     g.fillStyle = '#8a93a8';
     for (const c of state.traffic.cars) {
       if (c.dead) continue;
@@ -309,14 +323,14 @@ export class Hud {
     }
     g.restore();
 
-    // Edge-of-range vignette on top of the world layer.
+    // Edge-of-range vignette over the world layer.
     const vig = g.createRadialGradient(R, R, R * 0.55, R, R, R);
     vig.addColorStop(0, '#00000000');
     vig.addColorStop(1, '#0000008c');
     g.fillStyle = vig;
     g.fillRect(0, 0, S, S);
 
-    // Player arrow at centre, always pointing up.
+    // Player arrow, centre, always pointing up.
     g.fillStyle = '#7ee08a';
     g.strokeStyle = '#0b0e14';
     g.lineWidth = 1.5;
@@ -333,19 +347,21 @@ export class Hud {
     this.drawMinimapFrame(g, S, state);
   }
 
-  // Bezel + corner ticks + north tick, drawn after the clipped map so the frame
-  // sits proud of the content like a real radar housing.
+  // Radar housing: bezel (tints red while wanted), corner brackets, north
+  // label. Runs after restore(), so nothing here is clipped away.
   drawMinimapFrame(g, S, state) {
     const b = MINIMAP.bezel / 2;
     g.save();
     g.beginPath();
-    if (g.roundRect) g.roundRect(b, b, S - b * 2, S - b * 2, MINIMAP.radius + 1);
-    else g.rect(b, b, S - b * 2, S - b * 2);
+    if (g.roundRect) {
+      g.roundRect(b, b, S - b * 2, S - b * 2, MINIMAP.radius + 1);
+    } else {
+      g.rect(b, b, S - b * 2, S - b * 2);
+    }
     g.strokeStyle = state.wanted > 0 ? '#ff5f5f66' : '#ffffff2e';
     g.lineWidth = MINIMAP.bezel;
     g.stroke();
 
-    // Corner ticks: four short brackets read as instrumentation.
     const t = 14;
     g.strokeStyle = '#ffffff5c';
     g.lineWidth = 2;
@@ -356,8 +372,6 @@ export class Hud {
     g.moveTo(S - b - t, S - b); g.lineTo(S - b, S - b); g.lineTo(S - b, S - b - t);
     g.stroke();
 
-    // North tick at the top edge (the radar rotates, so this tracks heading).
-    // drawMinimapFrame runs after restore() so the frame is never clipped away.
     g.fillStyle = '#9fb0d8';
     g.font = 'bold 10px sans-serif';
     g.textAlign = 'center';

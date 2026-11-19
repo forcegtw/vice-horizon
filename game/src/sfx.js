@@ -1,10 +1,11 @@
-// WebAudio synth: every sound is generated at runtime, no audio files.
-// The context is created lazily on first user gesture, as browsers require, and
-// everything routes through one master gain so mute is a single knob.
-// Suspend/resume the AudioContext with the pause state, not just gain=0.
-// Node budget per gesture is small; long sounds must be stopped, not just faded.
-// cash() guards against a missing context so the reward sting before the first
-// gesture is a no-op instead of a TypeError.
+// sfx.js — WebAudio synth: every sound is generated at runtime, no audio files.
+// The context is created lazily on the first user gesture (browsers require it)
+// and everything routes through one master gain, so volume is a single knob.
+// Enveloped tones (5 ms attack, exponential decay) kill the click a raw step
+// edge produces. Long-lived oscillators — engine, siren — are persistent nodes
+// retuned per frame rather than rebuilt, and dispose() stops them all so a
+// paused/shot session leaves no hum. cash() guards a missing context so the
+// reward sting before the first gesture is a no-op, not a TypeError.
 
 export class Sfx {
   constructor() {
@@ -12,10 +13,14 @@ export class Sfx {
     this.master = null;
     this.musicGain = null;
     this.musicTimer = null;
-    this._nextNote = 0;
     this._step = 0;
+    this._engineOsc = null;
+    this._engineGain = null;
+    this._sirenOsc = null;
+    this._sirenGain = null;
   }
 
+  // Create the context + master chain on first gesture; safe to call repeatedly.
   ensure() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -30,10 +35,12 @@ export class Sfx {
     this._startMusic();
   }
 
-  resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  }
 
-  // Master volume in [0, 1]: one knob for the whole mix (SFX + radio + engine).
-  // Uses setTargetAtTime rather than a hard set so a volume change never clicks.
+  // Master volume in [0, 1] for the whole mix. setTargetAtTime rather than a
+  // hard set so a volume change never clicks.
   setVolume(v) {
     if (!this.master) return;
     const t = Math.max(0, Math.min(1, v));
@@ -41,11 +48,13 @@ export class Sfx {
     this.master.gain.setTargetAtTime(t * 0.5, this.ctx.currentTime, 0.08);
   }
 
-  // Stop every long-lived oscillator so a paused/shot session leaves no hum behind.
+  // Stop every long-lived oscillator and the music scheduler.
   dispose() {
-    if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; }
+    if (this.musicTimer) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
     this._step = 0;
-    this._nextNote = 0;
     for (const n of [this._engineOsc, this._sirenOsc]) {
       try { n?.stop(); } catch { /* already stopped */ }
     }
@@ -53,6 +62,7 @@ export class Sfx {
     this._sirenOsc = null;
   }
 
+  // One enveloped oscillator tone; slideTo sweeps frequency exponentially.
   _tone(freq, dur, type = 'square', gain = 0.2, dest = null, slideTo = null) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
@@ -61,8 +71,6 @@ export class Sfx {
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), t + dur);
-    // Attack/decay envelope: 5 ms fade-in kills the click a step edge produces,
-    // then the exponential decay tail as before.
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
@@ -72,6 +80,7 @@ export class Sfx {
     o.stop(t + dur + 0.02);
   }
 
+  // Shaped white noise through a lowpass — impacts, gunfire, hats.
   _noise(dur, gain = 0.3, filterFreq = 1200) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
@@ -86,7 +95,9 @@ export class Sfx {
     f.frequency.value = filterFreq;
     const g = this.ctx.createGain();
     g.gain.value = gain;
-    src.connect(f); f.connect(g); g.connect(this.master);
+    src.connect(f);
+    f.connect(g);
+    g.connect(this.master);
     src.start(t);
   }
 
@@ -95,11 +106,15 @@ export class Sfx {
     this._tone(180, 0.1, 'square', 0.25 * vol, null, 60);
   }
 
-  punch() { this._noise(0.09, 0.4, 700); this._tone(90, 0.08, 'sine', 0.3, null, 50); }
+  punch() {
+    this._noise(0.09, 0.4, 700);
+    this._tone(90, 0.08, 'sine', 0.3, null, 50);
+  }
 
+  // Persistent engine oscillator retuned to speed ratio [0, 1]; gain gates it
+  // to zero when idling so the hum doesn't run while parked.
   engine(speedRatio) {
     if (!this.ctx) return;
-    // Called per frame: a persistent engine oscillator is retuned to speed.
     if (!this._engineOsc) {
       this._engineOsc = this.ctx.createOscillator();
       this._engineGain = this.ctx.createGain();
@@ -118,9 +133,15 @@ export class Sfx {
     if (this._engineGain) this._engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
   }
 
-  crash() { this._noise(0.3, 0.6, 900); this._tone(70, 0.25, 'sawtooth', 0.3, null, 40); }
+  crash() {
+    this._noise(0.3, 0.6, 900);
+    this._tone(70, 0.25, 'sawtooth', 0.3, null, 40);
+  }
 
-  pickup() { this._tone(660, 0.09, 'square', 0.22); this._tone(990, 0.12, 'square', 0.18); }
+  pickup() {
+    this._tone(660, 0.09, 'square', 0.22);
+    this._tone(990, 0.12, 'square', 0.18);
+  }
 
   cash() {
     if (!this.ctx) return;
@@ -128,8 +149,12 @@ export class Sfx {
     setTimeout(() => { if (this.ctx) this._tone(1320, 0.09, 'square', 0.2); }, 70);
   }
 
-  wantedUp() { this._tone(440, 0.18, 'square', 0.25, null, 220); }
+  wantedUp() {
+    this._tone(440, 0.18, 'square', 0.25, null, 220);
+  }
 
+  // Continuous wail while on. Phase derives from clock time so repeated calls
+  // per frame ride one sweep instead of snapping back to the bottom each call.
   siren(on) {
     if (!this.ctx) return;
     if (on && !this._sirenOsc) {
@@ -144,10 +169,7 @@ export class Sfx {
     if (on && this._sirenOsc) {
       const t = this.ctx.currentTime;
       this._sirenOsc.frequency.cancelScheduledValues(t);
-      // Wail continues from wherever it was: don't snap to 700 each frame.
-      const cur = this._sirenOsc.frequency.value;
-      this._sirenOsc.frequency.setValueAtTime(cur, t);
-      // Phase from clock time so repeated calls stay on one continuous sweep.
+      this._sirenOsc.frequency.setValueAtTime(this._sirenOsc.frequency.value, t);
       const ph = (t % 1.8) / 1.8;
       const target = ph < 0.5 ? 700 + 800 * (ph / 0.5) : 1500 - 800 * ((ph - 0.5) / 0.5);
       this._sirenOsc.frequency.linearRampToValueAtTime(target, t + 0.05);
@@ -157,13 +179,14 @@ export class Sfx {
     }
   }
 
-  // Simple synthwave loop: bass line + arp, scheduled a bar ahead.
+  // Synthwave bed: bass + arp + hats on an 8-step loop, scheduled ahead by an
+  // interval that matches the step duration. Gain fades in over 2.5 s so
+  // unmuting never pops.
   _startMusic() {
     const bpm = 96;
     const stepDur = 60 / bpm / 2;
     const bass = [55, 55, 65.4, 55, 49, 49, 58.3, 49];
     const arp = [220, 277, 330, 277, 196, 247, 294, 247];
-    // Music gain rides a slow fade so unmuting never pops; resume() restores it.
     this.musicGain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
     this.musicGain.gain.exponentialRampToValueAtTime(0.16, this.ctx.currentTime + 2.5);
     this.musicTimer = setInterval(() => {
