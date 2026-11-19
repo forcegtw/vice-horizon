@@ -15,7 +15,10 @@ import { Vehicle, Traffic, Police, resolveCircle } from './vehicles.js';
 import { carMesh, pedMesh, playerMesh } from './models.js';
 import { buildEnvironment } from './env.js';
 import { Peds } from './peds.js';
+import { Peds2 } from './peds2.js';
 import { Missions, makeMarker } from './missions.js';
+import { SideJobs } from './missions2.js';
+import { Minimap } from './minimap.js';
 import { Hud } from './hud.js';
 import { Sky } from './sky.js';
 import { Particles } from './particles.js';
@@ -150,10 +153,19 @@ const wireVehicleEvents = (v) => {
 };
 for (const c of traffic.cars) wireVehicleEvents(c);
 const peds = new Peds(scene, city, rng);
+// Pedestrian life layer: walk anims, fear of wanted player, district density.
+const peds2 = new Peds2(peds, city, rng);
 const police = new Police(scene);
 const mission = new Missions(scene, rng, city, sfx);
 mission.setPlayerRef(player);
 const weather = new Weather(scene, city, rng);
+// Side-job board: races / deliveries / rampage, independent of the main chain.
+const sideJobs = new SideJobs(scene, rng, city, sfx);
+sideJobs.onReward = (cash, name) => {
+  state.money += cash;
+  hud.toast(`Side job paid — ${name} $${cash}`, 4);
+};
+sideJobs.onCrime = () => wantedUp(1, 'pedHit');
 
 const state = {
   money: 0, wanted: 0, time: WORLD.dayLength * 0.7,
@@ -200,7 +212,8 @@ overlay.show(
   'VICE HORIZON',
   'An open-world crime playground on the neon coast. Steal cars, run jobs, outrun the heat.',
   'WASD — move / drive · Shift — sprint · F — enter / steal car · LMB — attack<br>' +
-  'E / Q — switch weapon · M — start next mission · P — pause · R — respawn after bust',
+  'E / Q — switch weapon · T — start next job · G — side job board<br>' +
+  'M — toggle big map / next mission · P — pause · R — respawn after bust',
   'START',
 );
 
@@ -210,6 +223,8 @@ const hud = new Hud(document.body);
 const wanted = new Wanted(state, sfx, hud);
 const radio = new Radio(sfx);
 const economy = new Economy(scene, city, rng);
+const minimap = new Minimap(document.body, city);
+minimap.setVisible = ((orig) => (v) => { orig(v); hud.setMinimapVisible(v); })(minimap.setVisible.bind(minimap));
 state.wantedSys = wanted;
 state.weather = weather;
 state.radio = radio;
@@ -305,6 +320,7 @@ function attack() {
   if (w.id === 'fist') {
     sfx.punch();
     const hitPed = peds.killNear(player.x, player.z, w.range);
+    if (hitPed) sideJobs.onPedKilled();
     if (hitPed) wantedUp(1, 'pedHit');
     // Also damages cops on foot / rival targets if close.
     for (const t of mission.targets) {
@@ -474,6 +490,7 @@ function tick(now) {
       sfx.engine(Math.abs(playerCar.speed) / CAR.maxSpeed);
       // Running people over raises heat.
       const hitPed = peds.killNear(playerCar.x, playerCar.z, 2.6);
+      if (hitPed) sideJobs.onPedKilled();
       if (hitPed && Math.abs(playerCar.speed) > 4) wantedUp(1, 'pedHit');
     } else {
       const sprint = input.down('ShiftLeft') || input.down('ShiftRight');
@@ -504,8 +521,10 @@ function tick(now) {
     if (input.tapped('KeyF')) tryEnterCar();
     if (input.tapped('KeyE')) { player.weaponIndex = (player.weaponIndex + 1) % WEAPONS.length; }
     if (input.tapped('KeyQ')) { player.weaponIndex = (player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length; }
-    if (input.tapped('KeyM')) mission.advance();
+    if (input.tapped('KeyT')) mission.advance();
     if (input.tapped('KeyR') && !player.alive) respawn();
+    if (input.tapped('KeyG')) sideJobs.startNext();
+    if (input.tapped('KeyM') && minimap) hud.toast(minimap.toggle() ? 'Map shown' : 'Map hidden', 1.5);
     // Radio: J cycles stations (Shift-J back), K toggles mute — in-car only.
     if (player.inCar) {
       if (input.tapped('KeyJ')) {
@@ -539,6 +558,11 @@ function tick(now) {
     // Traffic yields / panics near the player; nothing extra needed.
   });
   peds.update(dt, rng, player.inCar ? playerCar : player, city.solids, state.wanted > 0 ? { x: player.x, z: player.z } : null);
+  // Life layer runs after the base state machine so anim poses win the frame.
+  const playerRef = player.inCar ? playerCar : player;
+  peds2.senseThreat(playerRef, state.wanted, dt);
+  peds2.update(dt, playerRef, state.wanted);
+  peds2.setPlayerFocus(playerRef);
   police.syncCount(state.wanted, dt, player.inCar ? playerCar : player, city.solids, rng, city);
   police.update(dt, player.inCar ? playerCar : player, state, city.solids, rng, damagePlayer);
   wanted.update(dt, player.inCar ? playerCar : player, police, player.inCar);
@@ -546,6 +570,7 @@ function tick(now) {
   // wires the siren to the star count.
   sfx.siren(state.wanted > 0);
   mission.update(dt, player.inCar ? playerCar : player, { time: state.time });
+  sideJobs.update(dt, playerRef, { time: state.time });
   economy.update(dt, player, player.inCar, playerCar, hud);
   radio.setInCar(player.inCar && started);
   ensureRivalMeshes();
@@ -587,6 +612,7 @@ function tick(now) {
   updateHeadlights();
   updateCamera(dt);
   hud.update(state, player, playerCar, mission, currentWeapon(), weather.label(), radio.label());
+  minimap.update(dt, player, playerCar, mission, sideJobs, state);
 
   // Autosave every 10 s.
   saveT += dt;

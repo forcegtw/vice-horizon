@@ -49,6 +49,13 @@ export class Hud {
     this.toastT = 0;
   }
 
+  // Minimap module (minimap.js) calls this when its big map shows/hides so the
+  // two maps never stack. Falls back to no-op if the module is absent.
+  setMinimapVisible(visible) {
+    this._mmExternal = visible;
+    this.el.minimap.style.display = visible ? 'none' : '';
+  }
+
   toast(text, seconds = 3) {
     this.el.toast.textContent = text;
     this.el.toast.style.display = 'block';
@@ -134,7 +141,9 @@ export class Hud {
     this.drawMinimap(state, player, car, mission);
   }
 
+  // Skip the small map's redraw while the big minimap module is showing.
   drawMinimap(state, player, car, mission) {
+    if (this._mmExternal) return;
     const g = this.mm;
     const S = 200;
     g.clearRect(0, 0, S, S);
