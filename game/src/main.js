@@ -477,11 +477,22 @@ function tick(now) {
   requestAnimationFrame(tick);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (state.paused) { renderer.render(scene, camera); return; }
+  // Pause: stop the schedule-ahead chain too, so music does not silently queue
+  // while the overlay is up and then dump a burst on resume.
+  if (state.paused) {
+    radio.stop();
+    sfx.engineOff();
+    renderer.render(scene, camera);
+    return;
+  }
 
   state.time += dt;
 
   // ---- Player control ----
+  // One reference for "where the player is" this frame: on foot the ped, in a car the
+  // vehicle. Every system below reads this instead of re-deriving the ternary, so an
+  // enter/exit mid-frame can never leave two systems disagreeing about the body.
+  const playerRef = player.inCar ? playerCar : player;
   if (started && player.alive) {
     const { f, s } = input.moveAxis();
     if (player.inCar) {
@@ -552,22 +563,29 @@ function tick(now) {
   }
 
   // ---- Systems ----
+  // Phase order matters and is deliberate:
+  //   1. traffic   — moves obstacles first, so peds/cops resolve against fresh car boxes
+  //   2. peds      — base state machine (walk / flee / dead)
+  //   3. peds2     — life layer poses the same rigs after the base machine has run
+  //   4. police    — spawn/despawn uses this frame's wanted count
+  //   5. wanted    — heat decay reads police positions from step 4
+  //   6. missions  — objective checks against the final player position
+  //   7. economy   — shop proximity for the same position
   traffic.update(dt, player.inCar ? playerCar : { x: player.x, z: player.z, onFoot: !player.inCar }, city.solids, (c) => {
     // Traffic yields / panics near the player; nothing extra needed.
   });
-  peds.update(dt, rng, player.inCar ? playerCar : player, city.solids, state.wanted > 0 ? { x: player.x, z: player.z } : null);
+  peds.update(dt, rng, playerRef, city.solids, state.wanted > 0 ? { x: player.x, z: player.z } : null);
   // Life layer runs after the base state machine so anim poses win the frame.
-  const playerRef = player.inCar ? playerCar : player;
   peds2.senseThreat(playerRef, state.wanted, dt);
   peds2.update(dt, playerRef, state.wanted);
   peds2.setPlayerFocus(playerRef);
-  police.syncCount(state.wanted, dt, player.inCar ? playerCar : player, city.solids, rng, city);
-  police.update(dt, player.inCar ? playerCar : player, state, city.solids, rng, damagePlayer);
-  wanted.update(dt, player.inCar ? playerCar : player, police, player.inCar);
+  police.syncCount(state.wanted, dt, playerRef, city.solids, rng, city);
+  police.update(dt, playerRef, state, city.solids, rng, damagePlayer);
+  wanted.update(dt, playerRef, police, player.inCar);
   // Wanted decay and heat bookkeeping live in Wanted.update; the loop only
   // wires the siren to the star count.
   sfx.siren(state.wanted > 0);
-  mission.update(dt, player.inCar ? playerCar : player, { time: state.time });
+  mission.update(dt, playerRef, { time: state.time });
   sideJobs.update(dt, playerRef, { time: state.time });
   economy.update(dt, player, player.inCar, playerCar, hud);
   radio.setInCar(player.inCar && started);
@@ -613,6 +631,7 @@ function tick(now) {
   hud.update(state, player, playerCar, mission, currentWeapon(), weather.label(), radio.label());
   minimap.update(dt, player, playerCar, mission, sideJobs, state);
 
+  // ---- Frame bookkeeping (after all systems, before the draw) ----
   // Autosave on a config-driven cadence (money, mission index, economy ledger).
   saveT += dt;
   if (saveT > AUTOSAVE_SECONDS) {
@@ -645,6 +664,8 @@ window.addEventListener('keydown', (e) => {
       overlay.show('PAUSED', 'Take a breath. The city waits.', 'P — resume', 'RESUME');
     } else {
       overlay.hide();
+      // Pause stopped the radio scheduler; restart it if the player is mid-drive.
+      if (player.inCar && radio.enabled && radio.station().id !== 'off') radio.start();
     }
   }
 });
