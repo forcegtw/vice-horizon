@@ -39,10 +39,12 @@ export class Vehicle {
   forwardZ() { return Math.cos(this.heading); }
 
   // Drive with throttle in [-1,1] and steer in [-1,1]; one integration step.
-  drive(throttle, steerInput, dt, solids) {
+  // maxScale lets upgrades (engine tune) raise the forward speed cap without
+  // touching the tuned constants in config.
+  drive(throttle, steerInput, dt, solids, maxScale = 1) {
     const accel = throttle > 0 ? CAR.accel : CAR.brake;
     if (throttle !== 0) {
-      const cap = throttle > 0 ? CAR.maxSpeed : CAR.reverseSpeed;
+      const cap = throttle > 0 ? CAR.maxSpeed * maxScale : CAR.reverseSpeed;
       this.speed = THREE.MathUtils.clamp(this.speed + throttle * accel * dt, -cap, cap);
     } else {
       // Engine drag + rolling friction.

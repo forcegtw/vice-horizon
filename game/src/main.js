@@ -22,6 +22,8 @@ import { Particles } from './particles.js';
 import { loadSave, writeSave } from './save.js';
 import { Weather } from './weather.js';
 import { Wanted } from './wanted.js';
+import { Radio } from './radio.js';
+import { Economy } from './economy.js';
 import { SHOTS } from './shots.js';
 
 // ---------------------------------------------------------------------------
@@ -189,6 +191,9 @@ if (saved) {
   state.money = saved.money ?? 0;
   mission.index = Math.min(saved.missionIndex ?? 0, MISSIONS.length);
 }
+// Economy owns upgrades and merges its persisted cash into state.money
+// (only when the main save had none, so the newer save wins).
+economy.bind(state);
 
 // Start-screen overlay.
 const overlay = Hud.overlay(document.body);
@@ -204,8 +209,12 @@ const hud = new Hud(document.body);
 // Heat-driven star system sits on top of Police: crimes bank heat, cops follow
 // the star count, and heat bleeds off once nobody has eyes on the player.
 const wanted = new Wanted(state, sfx, hud);
+const radio = new Radio(sfx);
+const economy = new Economy(scene, city, rng);
 state.wantedSys = wanted;
 state.weather = weather;
+state.radio = radio;
+state.economy = economy;
 // Shot staging needs the overlay handle, so it runs after its creation below. The
 // fixed-step loop caps catch-up frames per rAF so a slow laptop never spirals.
 function applyShot() {
@@ -459,7 +468,7 @@ function tick(now) {
     const { f, s } = input.moveAxis();
     if (player.inCar) {
       const throttle = f;
-      playerCar.drive(throttle, s, dt, city.solids);
+      playerCar.drive(throttle, s, dt, city.solids, economy.speedMultiplier());
       sfx.engine(Math.abs(playerCar.speed) / CAR.maxSpeed);
       // Running people over raises heat.
       const hitPed = peds.killNear(playerCar.x, playerCar.z, 2.6);
@@ -495,6 +504,22 @@ function tick(now) {
     if (input.tapped('KeyQ')) { player.weaponIndex = (player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length; }
     if (input.tapped('KeyM')) mission.advance();
     if (input.tapped('KeyR') && !player.alive) respawn();
+    // Radio: J cycles stations (Shift-J back), K toggles mute — in-car only.
+    if (player.inCar) {
+      if (input.tapped('KeyJ')) {
+        const name = input.down('ShiftLeft') || input.down('ShiftRight') ? radio.prev() : radio.next();
+        radio.jingle();
+        hud.toast(name, 2);
+      }
+      if (input.tapped('KeyK')) hud.toast(radio.toggleMute() ? '📻 Radio on' : '🔇 Radio muted', 2);
+    }
+    // Gas-station shop stops: B / N / V / C while parked at a station.
+    if (economy.insideShop) {
+      if (input.tapped('KeyB')) economy.buy('health', player, hud, sfx);
+      if (input.tapped('KeyN')) economy.buy('armor', player, hud, sfx);
+      if (input.tapped('KeyV')) economy.buy('speed', player, hud, sfx);
+      if (input.tapped('KeyC')) economy.buy('plating', player, hud, sfx);
+    }
     player.fireT -= dt;
     const w = currentWeapon();
     if (input.firing && player.fireT <= 0 && (w.auto || input.tapped('FireClick'))) {
@@ -519,6 +544,8 @@ function tick(now) {
   // wires the siren to the star count.
   sfx.siren(state.wanted > 0);
   mission.update(dt, player.inCar ? playerCar : player, { time: state.time });
+  economy.update(dt, player, player.inCar, playerCar, hud);
+  radio.setInCar(player.inCar && started);
   ensureRivalMeshes();
   mission.collectReward(state);
 
@@ -557,13 +584,14 @@ function tick(now) {
   sky.update(updateSky.fraction, sun.position.clone().normalize(), updateSky.dayAmt);
   updateHeadlights();
   updateCamera(dt);
-  hud.update(state, player, playerCar, mission, currentWeapon(), weather.label());
+  hud.update(state, player, playerCar, mission, currentWeapon(), weather.label(), radio.label());
 
   // Autosave every 10 s.
   saveT += dt;
   if (saveT > 10) {
     saveT = 0;
     writeSave({ money: state.money, missionIndex: mission.index });
+    economy.persist();
   }
 
   input.endFrame();

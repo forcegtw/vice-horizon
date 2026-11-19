@@ -27,6 +27,7 @@ export class Hud {
         <canvas id="minimap" width="200" height="200" style="position:absolute;left:16px;top:60px;border-radius:10px;background:#0b0e14cc;border:2px solid #ffffff22;"></canvas>
         <div id="mission" style="position:absolute;bottom:64px;left:50%;transform:translateX(-50%);max-width:640px;text-align:center;font-size:15px;background:#0b0e14bb;padding:8px 16px;border-radius:8px;border:1px solid #ffffff1a;display:none;"></div>
         <div id="speedo" style="position:absolute;bottom:16px;right:20px;font-size:20px;font-weight:600;color:#ffd76e;text-shadow:0 2px 4px #000a;"></div>
+        <div id="radio" style="position:absolute;bottom:44px;right:20px;font-size:13px;color:#9fb0d8;text-shadow:0 2px 4px #000a;"></div>
         <div id="clock" style="position:absolute;bottom:16px;left:16px;font-size:14px;color:#cbd5f5;text-shadow:0 2px 4px #000a;"></div>
         <div id="toast" style="position:absolute;top:110px;left:50%;transform:translateX(-50%);font-size:17px;background:#7a1f2bcc;padding:10px 18px;border-radius:8px;display:none;color:#ffe9e9;"></div>
       </div>`);
@@ -40,6 +41,7 @@ export class Hud {
       minimap: root.querySelector('#minimap'),
       mission: root.querySelector('#mission'),
       speedo: root.querySelector('#speedo'),
+      radio: root.querySelector('#radio'),
       clock: root.querySelector('#clock'),
       toast: root.querySelector('#toast'),
     };
@@ -83,14 +85,24 @@ export class Hud {
     };
   }
 
-  update(state, player, car, mission, weapon, weatherLabel) {
+  update(state, player, car, mission, weapon, weatherLabel, radioLabel) {
     // Title screen: keep the HUD clean, show it only once the game starts.
     const started = !!(state.overlay && state.overlay.hidden);
     if (this.hudEl) this.hudEl.style.visibility = started ? 'visible' : 'hidden';
     this.el.cash.textContent = `$${state.money}`;
     const stars = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
     this.el.wanted.textContent = stars;
-    this.el.weapon.textContent = weapon.name;
+    // Weapon readout: dirty-checked so DOM writes only happen on change.
+    if (weapon.name !== this._lastWeapon) {
+      this._lastWeapon = weapon.name;
+      this.el.weapon.textContent = weapon.name;
+    }
+    // Radio readout appended under the speedo; empty when on foot.
+    const radioText = radioLabel || '';
+    if (radioText !== this._lastRadio) {
+      this._lastRadio = radioText;
+      this.el.radio.textContent = radioText;
+    }
     this.el.hp.style.width = `${Math.max(0, player.health)}%`;
     this.el.ap.style.width = `${Math.max(0, player.armor)}%`;
     this.el.speedo.textContent = player.inCar ? `${Math.round(Math.abs(car.speed) * 3.6)} km/h` : '';
