@@ -193,7 +193,6 @@ if (saved) {
 }
 // Economy owns upgrades and merges its persisted cash into state.money
 // (only when the main save had none, so the newer save wins).
-economy.bind(state);
 
 // Start-screen overlay.
 const overlay = Hud.overlay(document.body);
@@ -215,6 +214,9 @@ state.wantedSys = wanted;
 state.weather = weather;
 state.radio = radio;
 state.economy = economy;
+// Economy owns upgrades and merges its persisted cash into state.money
+// (only when the main save had none, so the newer save wins).
+economy.bind(state);
 // Shot staging needs the overlay handle, so it runs after its creation below. The
 // fixed-step loop caps catch-up frames per rAF so a slow laptop never spirals.
 function applyShot() {

@@ -109,14 +109,15 @@ export class Weather {
       let y = arr[i * 3 + 1] - this.rainVel[i] * fall * dt;
       if (y < 0) {
         y = TOP;
-        // Recycle inside the box centred on the player so rain is always around them.
-        arr[i * 3] = player.x + (this.rng() - 0.5) * CELL;
-        arr[i * 3 + 2] = player.z + (this.rng() - 0.5) * CELL;
+        // Positions are local to the cloud: the whole Points object is moved
+        // to the player, so recycling only needs a fresh spot inside the box.
+        arr[i * 3] = (this.rng() - 0.5) * CELL;
+        arr[i * 3 + 2] = (this.rng() - 0.5) * CELL;
       }
       arr[i * 3 + 1] = y;
     }
     posAttr.needsUpdate = true;
-    // Wind drift: whole cloud leans with a slow sine so it does not look rigid.
+    // Wind drift: the cloud leans with a slow sine so it does not look rigid.
     this.rain.position.set(
       player.x + Math.sin(this.wetness * 7 + this.holdT) * 2 * this.intensity,
       0,

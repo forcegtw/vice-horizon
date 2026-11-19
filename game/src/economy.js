@@ -128,17 +128,15 @@ export class Economy {
     return { x, z, mesh: g };
   }
 
-  // Per-frame: detect shop proximity when in a car (drive-through stop).
+  // Per-frame: detect shop proximity (drive-through in a car, walk-up on foot).
   update(dt, player, inCar, playerCar, hud) {
     if (this.msgT > 0) this.msgT -= dt;
     const px = inCar ? playerCar.x : player.x;
     const pz = inCar ? playerCar.z : player.z;
 
     let near = null;
-    if (inCar) {
-      for (const s of this.shops) {
-        if (Math.hypot(s.x - px, s.z - pz) < 7) { near = s; break; }
-      }
+    for (const s of this.shops) {
+      if (Math.hypot(s.x - px, s.z - pz) < 8) { near = s; break; }
     }
     this.insideShop = near;
 
