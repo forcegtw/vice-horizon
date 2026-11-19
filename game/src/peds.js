@@ -4,6 +4,8 @@
 // Ped update cost scales with count; flee state is the hot path, keep its checks cheap.
 // Despawn far peds before spawning new ones to keep the cap honest. Dead peds keep
 // their heading when they fall (no snap to face their killer) and recycle through spawn().
+// Flee radius 26 / calm radius 40 are the two constants that shape crowd panic:
+// raising the calm radius makes streets stay scared longer after gunfire stops.
 
 import * as THREE from '../vendor/three.min.js';
 import { TRAFFIC, PLAYER, WORLD } from './config.js';
@@ -13,6 +15,9 @@ import { HALF } from './city.js';
 
 const SKIN = [0xe0b48c, 0xc98e5e, 0x8a5a3a, 0x6e4428];
 const SHIRT = [0xd65f5f, 0x5f7fd6, 0x63b46a, 0xd6c45f, 0xb45fd6, 0x5fb8b4, 0xdddddd];
+const ALARM_RADIUS = 26;   // gunfire scares peds within this range
+const CALM_RADIUS = 40;    // they settle back once this far from the panic source
+const FLEE_SPEED = 5.2;    // sprint of a scared ped; must beat PANIC_SPRINT chatter
 
 export class Peds {
   constructor(scene, city, rng) {
@@ -59,13 +64,13 @@ export class Peds {
       // Flee if gunfire alarmed nearby or the wanted player is right on top of them.
       if (alarmPos) {
         const d = Math.hypot(alarmPos.x - p.x, alarmPos.z - p.z);
-        if (d < 26) p.state = 'flee';
+        if (d < ALARM_RADIUS) p.state = 'flee';
       }
       if (p.state === 'flee') {
         const d = Math.hypot(playerPos.x - p.x, playerPos.z - p.z);
-        if (d > 40) p.state = 'walk';
+        if (d > CALM_RADIUS) p.state = 'walk';
         p.heading = Math.atan2(p.x - playerPos.x, p.z - playerPos.z);
-        p.speed = 5.2;
+        p.speed = FLEE_SPEED;
       } else {
         p.speed = TRAFFIC.pedSpeed;
         // Occasional wander turn.

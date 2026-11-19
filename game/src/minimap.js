@@ -9,6 +9,7 @@ import { WORLD } from './config.js';
 import { HALF } from './city.js';
 
 const SIZE = 230;
+const REDRAW_INTERVAL = 0.1;  // seconds between big-map redraws (~10 Hz)
 
 export class Minimap {
   constructor(root, city) {
@@ -52,7 +53,8 @@ export class Minimap {
     const to = (v) => (v + HALF + 20) * s;
     g.fillStyle = '#10131b';
     g.fillRect(0, 0, SIZE, SIZE);
-    // Blocks: slightly lighter fill for the lots.
+    // Blocks: slightly lighter fill for the lots. Fill spans run to the next
+    // block's street edge, so the street stroke below paints the roads on top.
     g.fillStyle = '#1a1f2c';
     const nb = WORLD.blocks + 1;
     for (let i = 0; i < nb - 1; i++) {
@@ -87,7 +89,7 @@ export class Minimap {
     this.redrawT -= dt;
     if (this.redrawT > 0) return;
     // 10 Hz redraw: a map has no per-frame state, so this stays plenty smooth.
-    this.redrawT = 0.1;
+    this.redrawT = REDRAW_INTERVAL;
     this.draw(player, playerCar, mission, sideJobs, state);
   }
 

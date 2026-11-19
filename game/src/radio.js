@@ -9,6 +9,8 @@
 // start() honors the mute toggle so unpausing a muted radio cannot resurrect a
 // silent scheduler, and stop() resets the lookahead clock so a long pause
 // doesn't make the next resume schedule a burst of overdue steps.
+// Scheduling caps: LOOKAHEAD bounds how far ahead steps are queued, the 16-step
+// guard bounds catch-up after a throttled tab, so neither can spike the audio thread.
 
 const STATIONS = [
   {
@@ -37,6 +39,7 @@ const STATIONS = [
 
 const LOOKAHEAD_MS = 90;   // schedule this far ahead
 const TICK_MS = 40;        // scheduler interval
+const MAX_CATCHUP_STEPS = 16; // hard cap on overdue steps queued in one scheduler tick
 
 export class Radio {
   constructor(sfx) {
@@ -52,6 +55,7 @@ export class Radio {
 
   // Radio bus: one gain node per radio so station music ducks under sirens
   // and never routes through Sfx.musicGain (the ambient loop keeps its own).
+  // 0.12 keeps the synth under the SFX layer; the engine tone lives on master.
   _ensureBus() {
     if (!this.sfx.ctx || this.gain) return;
     this.gain = this.sfx.ctx.createGain();
@@ -123,7 +127,7 @@ export class Radio {
     // Hard cap on catch-up steps: a throttled background tab can fall far behind,
     // and scheduling hundreds of overdue oscillators at once spikes the audio thread.
     let guard = 0;
-    while (this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000 && guard++ < 16) {
+    while (this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000 && guard++ < MAX_CATCHUP_STEPS) {
       const s = this.step % 8;
       const t = this.nextTime;
       // Bass: root-driven pattern, gated envelope on the radio bus.

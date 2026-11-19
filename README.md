@@ -24,10 +24,10 @@ Controls: **WASD** walk / drive · **Shift** sprint · **F** enter or steal a ca
 | --- | --- |
 | Wanted | Heat banks from crimes (carjacks, gunfire, ped hits); stars spawn cops per level, cops shoot above 30 m, heat decays once nobody has line of sight; escape or respawn to clear. The HUD shows stars plus a tinted heat bar. |
 | Weather | Clear / overcast / rain / storm cycle — wet asphalt darkens and gains sheen, fog thickens, rain particles and two-bolt lightning strikes ride the day/night clock. The HUD clock shows the current weather label. |
-| Radio | Four-station procedural synthwave loop synthesized in WebAudio (bass + arp + hats + kick, one mood per station), station cycling with a jingle sting, mute toggle, in-car only. |
+| Radio | Four-station procedural synthwave loop synthesized in WebAudio (bass + arp + hats + kick, one mood per station), station cycling with a jingle sting, mute toggle, in-car only. K mutes; the fourth "station" is RADIO OFF. |
 | Economy | Gas-station shops sell health, armor, engine tune (+18% top speed) and plating (+50 armor capacity); purchases persist in a versioned localStorage ledger merged with the main save. |
 | Minimap | Corner radar (roads, player arrow, mission blip, police dots, traffic flecks) plus a full-map overlay on M with side-job blips; the radar bezel tints red while wanted. |
-| Side jobs | Races (checkpoint chains), timed deliveries with a speed bonus and rampage contracts, started with G, paid on completion; rampage kills feed the wanted system. |
+| Side jobs | Races (checkpoint chains), timed deliveries with a speed bonus (up to +25% for an early haul) and rampage contracts, started with G, paid on completion; rampage kills feed the wanted system. |
 | Missions | Story chain: car delivery, timed cash-cache run, rival elimination — with markers, HUD briefs and payouts credited on completion. |
 | Day/night | 165 s cycle: shader sky dome with stars, orbiting sun + moonlight, neon signage flicker, headlight rig that fades in at dusk. |
 
@@ -42,8 +42,14 @@ Controls: **WASD** walk / drive · **Shift** sprint · **F** enter or steal a ca
 - Traffic that brakes for cars and the player, police that escalates with your wanted level,
   pedestrians that flee gunfire, WebAudio sound effects (enveloped tones, wailing siren) and a
   pooled particle system for sparks and explosions
+- Gas-station shop stops (health / armor / engine tune / plating) with a cash ledger that
+  persists separately from the main save
 - Versioned localStorage saves with v1→v2 migration, remappable input bindings, and a
   deterministic `?shot=NAME&seed=N` screenshot mode
+
+Note: this is an arcade sandbox, not a sim — collisions are circle-vs-AABB, aiming is a
+simple forward ray with no wall occlusion, and traffic runs on lane-loop AI rather than
+pathfinding.
 
 ## Architecture
 

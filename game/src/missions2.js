@@ -22,7 +22,7 @@ const JOB_COLORS = {
 // per-start from the road grid, so the payouts scale with route length.
 export const JOB_CATALOGUE = [
   { id: 'race-1', kind: 'race', name: 'Boardwalk Sprint', cps: 4, limit: 70, payout: 650 },
-  { id: 'race-2', name: 'Downtown Slalom', kind: 'race', cps: 5, limit: 90, payout: 850 },
+  { id: 'race-2', kind: 'race', name: 'Downtown Slalom', cps: 5, limit: 90, payout: 850 },
   { id: 'race-3', kind: 'race', name: 'Coast-to-Coast', cps: 6, limit: 115, payout: 1100 },
   { id: 'delivery-1', kind: 'delivery', name: 'Pizza Dash', limit: 55, payout: 420 },
   { id: 'delivery-2', kind: 'delivery', name: 'Parcel Express', limit: 80, payout: 700 },
@@ -30,6 +30,9 @@ export const JOB_CATALOGUE = [
   { id: 'rampage-1', kind: 'rampage', name: 'Sidewalk Rage', target: 6, limit: 60, payout: 550 },
   { id: 'rampage-2', kind: 'rampage', name: 'Neon Nightmare', target: 9, limit: 75, payout: 800 },
 ];
+
+// Delivery bonus: up to +25% of the base payout when over half the clock remains.
+const DELIVERY_BONUS_MAX = 0.25;
 
 export class SideJobs {
   constructor(scene, rng, city, sfx) {
@@ -228,7 +231,7 @@ export class SideJobs {
       } else if (job.stage === 'dropoff' && d(job.tx, job.tz) < 6 && player.inCar) {
         // Bonus for delivering fast: up to +25% if over half the clock remains.
         const bonus = Math.max(0, Math.min(1, this.timer / job.limit - 0.5) * 2);
-        job.payout = Math.round(job.payout * (1 + 0.25 * bonus));
+        job.payout = Math.round(job.payout * (1 + DELIVERY_BONUS_MAX * bonus));
         return this.pass();
       }
     } else if (job.kind === 'rampage') {

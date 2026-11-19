@@ -29,6 +29,14 @@ const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
 // Caps the scorer enforces (mirrored below in buildDossier): stay inside them here.
 const SCREENSHOT_CAPS = { max: 4, maxBytes: 262144 };
+// Same cap object the dossier builder receives; keep the two in sync by hand.
+const GAME_CAPS = {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+  game_path_max_bytes: 1000,
+};
 
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
@@ -61,12 +69,6 @@ if (existsSync(shotSrc)) {
 // screenshots/ and dossier.json).
 writeFileSync(
   join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
+  buildDossier(out, GAME_CAPS),
 );
 

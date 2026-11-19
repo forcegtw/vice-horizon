@@ -62,6 +62,7 @@ export class Particles {
   }
 
   explosion(x, y, z) {
+    // Fireball core, hot sparks, then a slow smoke tail — three bursts, one pool.
     this.burst(x, y, z, 60, 0xff8c3a, 14, 1.2, 2.2);
     this.burst(x, y + 1, z, 30, 0xffe08a, 8, 0.8, 1.6);
     this.burst(x, y + 0.5, z, 20, 0x555555, 5, 1.6, 2.8);

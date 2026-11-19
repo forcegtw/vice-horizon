@@ -8,7 +8,7 @@
 // main.js hands over the player).
 
 import * as THREE from '../vendor/three.min.js';
-import { MISSIONS, WORLD } from './config.js';
+import { MISSIONS, WORLD, CASH_RUN } from './config.js';
 import { HALF } from './city.js';
 
 // A glowing ground cylinder marking an objective, plus a floating arrow.
@@ -83,11 +83,11 @@ export class Missions {
       this.marker.position.set(spot.x, 0, spot.z);
       this.message(`MISSION — ${m.name}: ${m.brief}`);
     } else if (m.kind === 'collect') {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < CASH_RUN.caches; i++) {
         const spot = this.randomStreetSpot();
         this.targets.push({ x: spot.x, z: spot.z, kind: 'cash', done: false });
       }
-      this.timer = 150;
+      this.timer = CASH_RUN.timeLimit;
       this.pointAtNearest();
       this.message(`MISSION — ${m.name}: ${m.brief}`);
     } else if (m.kind === 'eliminate') {
@@ -161,7 +161,7 @@ export class Missions {
         t.done = true;
         this.collected++;
         this.sfx.pickup();
-        this.message(`Cache collected (${this.collected}/4)`, 2.5);
+        this.message(`Cache collected (${this.collected}/${CASH_RUN.caches})`, 2.5);
         this.pointAtNearest();
       } else if (t.kind === 'rival' && t.mesh && t.mesh.userData.dead) {
         t.done = true;

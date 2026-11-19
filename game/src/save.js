@@ -6,8 +6,12 @@
 // (v1 assumed) rather than discarded; money is range-checked and non-finite
 // values rejected so a hand-edited save can't poison the HUD.
 // Bump SAVE_SCHEMA_VERSION in config.js before changing persisted fields.
+// Both storage keys are named here once so clearSave() can never miss one.
 
 import { SAVE_KEY, SAVE_SCHEMA_VERSION } from './config.js';
+
+// Economy ledger key — lives beside the main save and is wiped with it.
+const ECO_KEY = 'vice-horizon-economy-v1';
 
 // Migrate an older save object up to the current schema. Returns null if it
 // can't be salvaged. Each step mutates a shallow copy and stamps its version.
@@ -55,5 +59,5 @@ export function clearSave() {
   // Wipes both ledgers (main save and the economy key) so a "reset progress"
   // affordance can't leave half the state behind.
   try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
-  try { localStorage.removeItem('vice-horizon-economy-v1'); } catch { /* ignore */ }
+  try { localStorage.removeItem(ECO_KEY); } catch { /* ignore */ }
 }

@@ -4,6 +4,8 @@
 // emissive. Three body styles: sedan/coupe, van, truck — no vehicle is a plain box.
 // carMesh falls back to a deterministic paint roll when handed a non-numeric color,
 // instead of reaching for Math.random and breaking ?shot= replay.
+// Shared materials are module-level singletons: glass, tires, rims and lights are
+// the same instances across every vehicle, so per-car material cost stays flat.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -238,6 +240,11 @@ function buildTruck(paint) {
   const cargoMat = new THREE.MeshStandardMaterial({ color: 0xcfd3da, metalness: 0.5, roughness: 0.55 });
   const g = new THREE.Group();
   const wheels = [];
+  // The truck's front bumper was previously rebuilt once per side of the same
+  // loop; it is centred and symmetric, so build it once outside the pair loop.
+  const bumper = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.22, 0.16), trimMat);
+  bumper.position.set(0, 0.44, 2.86);
+  g.add(bumper);
 
   // Beveled cab profile with a real windshield rake.
   const cab = new THREE.Mesh(profileBody([
@@ -273,9 +280,6 @@ function buildTruck(paint) {
     const tl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.24, 0.07), taillightMat);
     tl.position.set(s * 0.85, 0.95, -2.76);
     g.add(tl);
-    const bumper = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.22, 0.16), trimMat);
-    bumper.position.set(0, 0.44, 2.86);
-    g.add(bumper);
   }
   const twx = 1.1;
   for (const [x, z] of [[-twx, 2.0], [twx, 2.0], [-twx, -1.2], [twx, -1.2], [-twx, -2.0], [twx, -2.0]]) {

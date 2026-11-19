@@ -19,6 +19,7 @@ export const PLAYER = {
   height: 1.7,
   maxHealth: 100,
   maxArmor: 100,
+  armorAbsorb: 0.7,    // fraction of incoming damage armor soaks before health pays
 };
 
 // Arcade car tuning. maxSpeed pairs with economy's speedMultiplier (+18% engine
@@ -105,6 +106,18 @@ export const MISSIONS = [
 ];
 
 export const SAVE_KEY = 'vice-horizon-save-v1';
+
+// Shop menu blurbs mirror economy.js prices — keep the two tables in step.
+export const UPGRADE_HINTS = {
+  speed: 'ENGINE TUNE — +18% top speed',
+  plating: 'PLATING — +50 armor capacity',
+};
+
+// Collect-mission pacing, kept here so missions.js stays table-free.
+export const CASH_RUN = {
+  caches: 4,        // cash caches to grab before the clock expires
+  timeLimit: 150,   // seconds the collect clock gets
+};
 
 // Save schema version — bump when the persisted shape changes (see save.js).
 export const SAVE_SCHEMA_VERSION = 2;

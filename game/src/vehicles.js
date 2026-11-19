@@ -13,6 +13,7 @@ import { carMesh } from './models.js';
 import { HALF } from './city.js';
 
 const CAR_COLORS = [0xb0182c, 0x1a3a6b, 0xe8e8ea, 0x101318, 0x8f9299, 0xc9a227, 0x2c6e49, 0xd4581f];
+const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318); // skip near-black obsidian
 
 // A low-poly sedan: body + cabin + 4 wheel boxes, grouped so it can tilt and roll.
 // ---------------------------------------------------------------------------
@@ -99,6 +100,8 @@ export class Vehicle {
 }
 
 // Push a circle out of every AABB it overlaps; returns corrected position.
+// Two passes: the first resolves the deepest overlap, the second cleans up any
+// corner where pushing out of one box shoved the circle into its neighbour.
 export function resolveCircle(x, z, r, solids) {
   let blocked = false;
   for (let pass = 0; pass < 2; pass++) {
@@ -147,7 +150,6 @@ export class Traffic {
         heading = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       }
       // Bias traffic toward brighter paints so cars pop against asphalt.
-      const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318); // skip near-black obsidian
       const color = CAR_BRIGHT[Math.floor(rng() * CAR_BRIGHT.length)];
       const mesh = carMesh(color);
       scene.add(mesh);
@@ -187,6 +189,8 @@ export class Traffic {
       else c.speed = Math.min(TRAFFIC.carSpeed, c.speed + 6 * dt);
 
       // Runaway guard: teleport back onto a lane if it wandered out of bounds.
+      // The 30 m grace band beyond HALF lets cars swing wide at corners without
+      // instantly flipping heading; beyond it the car turns around on the spot.
       const nx = c.x + fx * c.speed * dt;
       const nz = c.z + fz * c.speed * dt;
       const hit = resolveCircle(nx, nz, CAR.radius, solids);
@@ -287,6 +291,9 @@ export class Police {
       if (u?.mesh?.parent) this.scene.remove(u.mesh);
     }
   }
+
+  // Sirens and pursuit tuning for the HUD: nothing else reads this.
+  count() { return this.units.length; }
 
   update(dt, player, state, solids, rng, damagePlayer, onBust) {
     for (const u of this.units) {

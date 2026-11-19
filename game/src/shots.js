@@ -18,7 +18,8 @@ export const SHOTS = {
       'START',
     );
     state.player.x = 8; state.player.z = 30;
-    state.camera.position.set(state.player.x - 18, 26, state.player.z - 34);
+    // Camera booms come from SHOT_BOOM so retuning the title framing is one edit.
+    state.camera.position.set(state.player.x - SHOT_BOOM.titleBack, SHOT_BOOM.titleUp, state.player.z - 34);
     state.camera.lookAt(state.player.x, 6, state.player.z + 10);
     state.time = WORLD_DAY * 0.36; // bright morning title with long-ish shadows
   },
@@ -26,6 +27,7 @@ export const SHOTS = {
     // Golden-hour cruise on the centre boulevard: stolen car mid-drive, skyline
     // catching warm light, mission marker ahead. Golden hour reads far better in
     // screenshots than deep night: richer color, visible detail, no mud.
+    // This shot intentionally keeps wanted=2 so the HUD stars + bezel tint show.
     state.hideOverlay();
     const c = state.traffic.cars.find((k) => k.mesh.userData.style === 'sedan') || state.traffic.cars[0];
     state.stealCar(c);
@@ -68,3 +70,6 @@ export const SHOTS = {
 // retuned, update that constant (not this one). Kept local because shots.js must stay
 // dependency-free for the smoke harness.
 const WORLD_DAY = 165; // == WORLD.dayLength (config.js)
+
+// Camera booms used by every shot, in world metres — bump together with CAMERA.
+const SHOT_BOOM = { titleBack: 18, titleUp: 26 };

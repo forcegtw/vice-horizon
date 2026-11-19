@@ -10,6 +10,7 @@
 import { POLICE } from './config.js';
 
 // Heat banked per crime type; a full star is 100 heat.
+// policeCarjack and copDestroyed outrank carjack: robbing the law costs more.
 const CRIME_HEAT = {
   carjack: 60,
   policeCarjack: 110,
@@ -22,6 +23,7 @@ const CRIME_HEAT = {
 const STAR_THRESHOLDS = [40, 110, 220, 360, 520]; // heat needed for 1..5 stars
 const DECAY_PER_SEC = 6;          // heat bleeds when out of police sight
 const PURSUIT_TIMEOUT = 14;       // s of no cop in range before decay kicks in
+const IN_CAR_BONUS = 4;           // extra sightT seconds granted while driving: getaways feel earned
 const RAMP_PER_STAR = 1;          // extra cars per star handled via copsPerStar
 
 export class Wanted {
@@ -66,6 +68,13 @@ export class Wanted {
     if (this.hud) this.hud.toast(reason === 'escape' ? 'You lost the heat.' : 'Heat cleared.');
   }
 
+  // Direct heat writer for respawn forgiveness and scripted events: bypasses
+  // crime() so a partial wipe never re-announces a star the player still has.
+  setHeat(v) {
+    this.heat = Math.max(0, v);
+    this._syncStars(false);
+  }
+
   stars() {
     let s = 0;
     for (const t of STAR_THRESHOLDS) if (this.heat >= t) s++;
@@ -97,7 +106,7 @@ export class Wanted {
     if (seen) {
       this.sightT = PURSUIT_TIMEOUT;
       // Evading at speed stretches the decay timer slightly: fast getaways feel earned.
-      if (inCar) this.sightT += 4;
+      if (inCar) this.sightT += IN_CAR_BONUS;
       this.escaped = false;
     } else {
       this.sightT -= dt;

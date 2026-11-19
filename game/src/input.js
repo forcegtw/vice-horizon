@@ -6,6 +6,9 @@
 // from a clean slate and refocusing after an alt-tab can't leave the weapon firing.
 // Game actions are defined as an action->codes map so rebinding is a one-liner
 // (Input.rebind('enter', ['KeyF'])) instead of an edit inside moveAxis / the loop.
+// Keys the browser would otherwise scroll or navigate with (arrows, Space, Tab)
+// are listed here once; the keydown handler preventDefaults exactly this set.
+const BROWSER_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'];
 
 export class Input {
   constructor(canvas) {
@@ -38,7 +41,7 @@ export class Input {
       this._pressedOnce.add(e.code);
       // preventDefault only on keys the browser would otherwise scroll / navigate
       // with; game letters (F, T, G…) stay untouched so typing in devtools works.
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
+      if (BROWSER_KEYS.includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => { this.keys.clear(); this.firing = false; this.dragging = false; });

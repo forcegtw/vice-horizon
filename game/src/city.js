@@ -107,6 +107,7 @@ function shopfrontTexture(styleIdx) {
 // Sidewalk paving: concrete slabs with joint lines and a curb strip. The speckle
 // uses a deterministic hash so the grit is identical across reloads (Math.random
 // here used to make two boots of the same seed differ in street texture).
+// speckle(n) is a plain integer hash — no state, so any texture can sample it.
 function speckle(i) {
   const h = (i * 2654435761) >>> 0;
   return (h % 1000) / 1000;
@@ -657,6 +658,7 @@ export function buildRoadLines() {
 }
 
 // Snap a world position onto the nearest lane, used for spawning traffic and cops.
+// Ties break toward the 'z' axis so spawning is stable when x and z are equidistant.
 export function nearestLane(x, z) {
   const step = WORLD.lotSize;
   const li = Math.round((x + HALF) / step);

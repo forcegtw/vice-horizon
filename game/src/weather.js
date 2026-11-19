@@ -8,6 +8,8 @@
 // and fog are created here and only touched here.
 // Fog density lerp uses a dt-scaled factor, so the storm haze settles at the same
 // rate at 30 fps and 144 fps.
+// Wetness lags intensity on purpose: the rain can stop while the streets still
+// glisten, and the dry-out rate below sets how long that afterglow lasts.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -18,6 +20,8 @@ const WET_ROUGHNESS = 0.18;
 const DRY_ROUGHNESS = 0.72;
 const WET_METALNESS = 0.5;
 const DRY_METALNESS = 0.18;
+const WET_GAIN = 0.22;     // wetness units per second while raining
+const DRY_LOSS = 0.045;    // wetness units per second while drying (~2x slower feel)
 
 // Weather state machine: each phase holds for a while, then transitions.
 // Intensity 0..1 drives rain fall speed, fog, wetness and lightning chance.
@@ -89,8 +93,8 @@ export class Weather {
     const ease = target > this.intensity ? 0.25 : 0.06;
     this.intensity += (target - this.intensity) * Math.min(1, dt * ease * 8);
     // Wetness saturates while raining, dries at ~1/3 the rate.
-    if (this.intensity > 0.4) this.wetness = Math.min(1, this.wetness + dt * 0.22);
-    else this.wetness = Math.max(0, this.wetness - dt * 0.045);
+    if (this.intensity > 0.4) this.wetness = Math.min(1, this.wetness + dt * WET_GAIN);
+    else this.wetness = Math.max(0, this.wetness - dt * DRY_LOSS);
 
     this._updateRain(dt, player);
     this._updateRoad();

@@ -4,7 +4,7 @@
 // Design rule: Economy owns money flow and its own storage key; mission
 // rewards still credit state.money directly, and the save merge happens here.
 import * as THREE from '../vendor/three.min.js';
-import { PLAYER } from './config.js';
+import { PLAYER, UPGRADE_HINTS } from './config.js';
 
 const ECO_KEY = 'vice-horizon-economy-v1';
 
@@ -34,6 +34,7 @@ export class Economy {
     this._menuDirty = false;   // set after a purchase so the offer refreshes in place
     this.msg = '';
     this.msgT = 0;
+    this.shopRadius = 8;   // metres from a canopy that counts as "at the station"
 
     this._load();
     this._buildStations();
@@ -134,7 +135,7 @@ export class Economy {
 
     let near = null;
     for (const s of this.shops) {
-      if (Math.hypot(s.x - px, s.z - pz) < 8) { near = s; break; }
+      if (Math.hypot(s.x - px, s.z - pz) < this.shopRadius) { near = s; break; }
     }
     this.insideShop = near;
 
@@ -193,7 +194,7 @@ export class Economy {
         ok = spend(PRICES.speed);
         if (ok) {
           this.upgrades.speed = true;
-          hud.toast('ENGINE TUNE — +18% top speed', 3);
+          hud.toast(UPGRADE_HINTS.speed, 3);
         }
         break;
       case 'plating':
@@ -201,7 +202,7 @@ export class Economy {
         ok = spend(PRICES.plating);
         if (ok) {
           this.upgrades.plating = true;
-          hud.toast('PLATING — +50 armor capacity', 3);
+          hud.toast(UPGRADE_HINTS.plating, 3);
         }
         break;
       default:

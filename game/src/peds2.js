@@ -5,6 +5,8 @@
 // recycling stay untouched. main.js runs peds.update() then peds2.update().
 // District density is written onto the ped (per-ped, refreshed on the move) and
 // the idle sway uses a stable per-ped lean instead of a fresh random each frame.
+// PANIC_SPRINT must stay above peds.js's FLEE_SPEED or sprinters visibly slow
+// down at the moment they should be at their fastest.
 
 import { WORLD } from './config.js';
 import { HALF } from './city.js';

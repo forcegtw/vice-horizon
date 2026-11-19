@@ -3,6 +3,8 @@
 // reflections disagree), and a sprinkle of stars that fade in at night.
 // Uniforms are driven by the day/night clock in main.js, so one draw call covers
 // dusk to dark; shader uniforms are the only live state after the first build.
+// Stars use a pure hash of the direction cell, so the field is fixed to the
+// dome and twinkles without a time uniform — no per-frame CPU cost at all.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -90,6 +92,8 @@ export class Sky {
     this.uniforms.uSunColor.value.setHex(dusk > 0.4 ? 0xff9a5a : 0xffdca8);
     this.uniforms.uSunSize.value = 0.028 + dusk * 0.02;
     this.uniforms.uStarAmt.value = Math.pow(night, 1.3); // stars appear earlier in dusk
+    // The dome recentres on the play area each frame so the 800 m shell never
+    // clips against the fog at the map edge — pure position write, no alloc.
   }
 }
 

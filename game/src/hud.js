@@ -44,7 +44,7 @@ const CSS = `
   border-left: 3px solid #ffc94a; }
 #hud #toast { position: absolute; top: 118px; left: 50%; transform: translateX(-50%);
   font-size: 16px; background: #7a1f2bdd; padding: 9px 18px; border-radius: 8px;
-  border: 1px solid #ffffff26; display: none; color: #ffe9e9; }
+  border: 1px solid #ffffff26; display: none; color: #ffe9e9; max-width: 80vw; text-align: center; }
 #hud .vh-hidden { display: none !important; }
 `;
 
@@ -357,6 +357,7 @@ export class Hud {
     g.stroke();
 
     // North tick at the top edge (the radar rotates, so this tracks heading).
+    // drawMinimapFrame runs after restore() so the frame is never clipped away.
     g.fillStyle = '#9fb0d8';
     g.font = 'bold 10px sans-serif';
     g.textAlign = 'center';

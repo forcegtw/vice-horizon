@@ -257,7 +257,7 @@ function damagePlayer(d) {
   if (!player.alive) return;
   let rem = d;
   if (player.armor > 0) {
-    const absorbed = Math.min(player.armor, rem * 0.7);
+    const absorbed = Math.min(player.armor, rem * PLAYER.armorAbsorb);
     player.armor -= absorbed;
     rem -= absorbed;
   }
@@ -278,8 +278,7 @@ function respawn() {
   player.x = 8; player.z = 30;
   // Respawn forgives heat but not all of it: drop two stars' worth so a repeat
   // offence still escalates, while cops already spawned get cleared below.
-  wanted.heat = Math.max(0, wanted.heat - 200);
-  wanted._syncStars(false);
+  wanted.setHeat(wanted.heat - 200);
   police.clear();
 }
 

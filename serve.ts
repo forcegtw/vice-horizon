@@ -37,6 +37,8 @@ const MIME: Record<string, string> = {
   '.ogg': 'audio/ogg',
   '.txt': 'text/plain; charset=utf-8',
 };
+// Unknown extensions fall through to octet-stream with nosniff, so a stray file
+// can never be reinterpreted as HTML by the browser.
 
 createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');

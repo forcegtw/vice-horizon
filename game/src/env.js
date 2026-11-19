@@ -7,6 +7,8 @@
 // The dome carries a second horizon band and a cool ground bounce, so chrome and
 // glass pick up a visible two-tone horizon instead of a flat gradient; exposure
 // also rides setMood so night reflections dim with the world.
+// The 220.0 / 8.0 exponents in the fragment shader shape the sun blob: the tight
+// lobe is the disc, the wide one the halo — tune together with sky.js's uSunSize.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -47,6 +49,11 @@ const DAY = {
 const NIGHT = {
   sky: 0x0a1020, horizon: 0x1a2338, bounce: 0x121a2a, ground: 0x05070c,
 };
+
+// Reflection strength floors: night keeps a quarter intensity so chrome never
+// reads as flat black against the lit street.
+const ENV_DAY_FLOOR = 0.25;
+const ENV_NIGHT_SCALE = 0.75;
 
 export function buildEnvironment(renderer, scene) {
   const envScene = new THREE.Scene();
@@ -96,7 +103,9 @@ export function buildEnvironment(renderer, scene) {
       // Night reflections dim with the world: chrome should not glow at 3 a.m.
       // (r160 supports scene.environmentIntensity; the sun blob inside the env also scales).
       uniforms.uSun.value.setHex(0xfff1d0).multiplyScalar(0.35 + day * 0.65);
-      scene.environmentIntensity = 0.25 + day * 0.75;
+      scene.environmentIntensity = ENV_DAY_FLOOR + day * ENV_NIGHT_SCALE;
+      // tmp is intentionally declared at module scope (see the const below) so
+      // this per-frame lerp path allocates nothing.
     },
   };
 }

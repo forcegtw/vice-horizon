@@ -20,6 +20,8 @@
 </style>
 </head>
 <body>
+<!-- a11y: the canvas carries a descriptive label and the live status line
+     mirrors HUD toasts for screen readers (hud.js writes it indirectly). -->
 <canvas id="game" aria-label="Vice Horizon: open world crime game, walk or drive the neon city, steal cars, do missions"></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 <script type="module" src="./src/main.js"></script>
