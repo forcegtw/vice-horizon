@@ -75,8 +75,14 @@ export class Particles {
     let any = false;
     for (let i = 0; i < MAX; i++) {
       if (this.life[i] <= 0) {
-        // Park dead particles far below the map.
-        if (this.pos[i * 3 + 1] > -100) this.pos[i * 3 + 1] = -1000;
+        // Park dead particles far below the map AND zero their colour: the
+        // position-only park used to leave a bright pixel floating in reflections
+        // when additive blending sampled the parked slot at grazing angles.
+        if (this.pos[i * 3 + 1] > -100) {
+          this.pos[i * 3 + 1] = -1000;
+          this.col[i * 3] = 0; this.col[i * 3 + 1] = 0; this.col[i * 3 + 2] = 0;
+          any = true;
+        }
         continue;
       }
       any = true;

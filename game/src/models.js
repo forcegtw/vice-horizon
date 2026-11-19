@@ -128,6 +128,18 @@ function addDetails(g, W, L, { lightY = 0.76, tallLights = false } = {}) {
   const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.14, 0.03), plateMat);
   plate.position.set(0, 0.42, L / 2 + 0.15);
   g.add(plate);
+  // Exhaust pipes peeking out under the rear bumper — small but visible from chase cam.
+  for (const s of [-1, 1]) {
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 8), rimMat);
+    pipe.rotation.x = Math.PI / 2;
+    pipe.position.set(s * W * 0.24, 0.34, -L / 2 - 0.1);
+    g.add(pipe);
+  }
+  // Whiplash antenna on the rear fender.
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.02, 0.5, 5), trimMat);
+  antenna.position.set(-W * 0.4, 1.05, -L / 2 + 0.35);
+  antenna.rotation.z = 0.18;
+  g.add(antenna);
   for (const s of [-1, 1]) {
     const mir = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.09), trimMat);
     mir.position.set(s * (W / 2 + 0.08), 1.16, L * 0.13);

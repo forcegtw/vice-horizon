@@ -64,7 +64,13 @@ createServer((request, response) => {
   response.writeHead(200, {
     'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
     'content-length': size,
-    'cache-control': 'no-store',
+    // The game is a local dev convenience: no-store keeps an edited src/ from being
+    // shadowed by a stale cached module, and vendored three.min.js (~600 KiB) gets a
+    // short-lived cache because it never changes between requests in a session.
+    'cache-control': file.includes(`${sep}vendor${sep}`)
+      ? 'private, max-age=3600'
+      : 'no-store',
+    'x-content-type-options': 'nosniff',
   });
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {

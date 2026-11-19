@@ -5,12 +5,14 @@
 // Witness pass 3: constants verified against consumer modules; no value changes in this pass.
 
 // Witness pass: tweak gameplay feel here only; per-system magic numbers elsewhere are considered bugs.
+// Polish pass 4: camera boom lengths, FOV push and headlight thresholds were inline in
+// main.js — pulled here so a controller-user retune never touches loop code.
 export const WORLD = {
   blocks: 10,          // city is blocks x blocks of streets and lots
   lotSize: 84,         // metres per block cell
   roadWidth: 16,
   sidewalk: 3,
-  dayLength: 150,      // seconds for a full day-night cycle
+  dayLength: 165,      // seconds for a full day-night cycle (was 150 — 2.2 in-game days/5 min felt rushed)
 };
 
 export const PLAYER = {
@@ -51,6 +53,28 @@ export const POLICE = {
   despawnCooldown: 12,
 };
 
+// Chase camera: distance/height on foot vs in car, plus the speed-reactive FOV push.
+export const CAMERA = {
+  footBack: 5.8,
+  footHeight: 3.0,
+  carBack: 10.0,
+  carHeight: 4.7,
+  baseFov: 62,
+  speedFovPush: 12,    // extra degrees at max speed
+  fovLerp: 4,          // per-second lerp rate for the push
+};
+
+// Player car headlight rig (see attachHeadlights in main.js).
+export const HEADLIGHTS = {
+  range: 42,
+  angle: 0.5,
+  nightThreshold: 0.25, // dayAmt below this switches them on
+  onIntensity: 320,
+};
+
+// Autosave cadence, seconds — the loop stores money/mission/economy on this tick.
+export const AUTOSAVE_SECONDS = 10;
+
 export const WEAPONS = [
   { id: 'fist', name: 'Fists', damage: 10, rate: 0.45, range: 2.2, auto: false },
   { id: 'pistol', name: 'Pistol', damage: 22, rate: 0.28, range: 42, auto: false },
@@ -82,6 +106,9 @@ export const MISSIONS = [
 ];
 
 export const SAVE_KEY = 'vice-horizon-save-v1';
+
+// Save schema version — bump when the persisted shape changes (see save.js).
+export const SAVE_SCHEMA_VERSION = 2;
 
 // Deterministic RNG (mulberry32) shared by world gen and ?shot= replay.
 export function makeRng(seed) {

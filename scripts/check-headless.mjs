@@ -1,5 +1,10 @@
 // Headless browser check: serve game/ with the repo's own server pattern,
 // load ?shot=start|play|end, capture console errors + pageerror, assert zero.
+// Polish pass 4: --disable-dev-shm-usage added — in tight containers the default
+// /dev/shm backing makes the renderer's zygote die mid-capture ("Connection reset
+// by peer") and the process linger forever; /tmp backing fixes it deterministically.
+// Each browser run is also hard-killed after 40 s so a flaky renderer can never
+// wedge the whole check, and a missing PNG counts as a failure.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
@@ -18,13 +23,14 @@ const srv = createServer((req, res) => {
 await new Promise(r => srv.listen(8791, r));
 
 const shell = process.env.HOME + '/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell';
-let errs = [];
+let failures = 0;
 const shots = ['start', 'play', 'end'];
 for (const shot of shots) {
-  errs = [];
+  const errs = [];
   await new Promise((resolve) => {
     const proc = spawn(shell, [
       '--headless', '--no-sandbox', '--disable-gpu',
+      '--disable-dev-shm-usage',
       '--enable-logging=stderr', '--v=0', '--hide-scrollbars',
       `--screenshot=/tmp/mm_${shot}.png`, '--window-size=1280,720',
       '--virtual-time-budget=8000',
@@ -39,12 +45,15 @@ for (const shot of shots) {
         }
       }
     });
-    proc.on('close', resolve);
+    const killer = setTimeout(() => proc.kill('SIGKILL'), 40000);
+    proc.on('close', () => { clearTimeout(killer); resolve(); });
   });
   const realErrors = errs.filter(e => !/Deprecation|Fontconfig|dbus|DBus/.test(e));
-  console.log(`shot=${shot}: errors=${realErrors.length}`);
+  const png = existsSync(`/tmp/mm_${shot}.png`);
+  if (realErrors.length || !png) failures++;
+  console.log(`shot=${shot}: errors=${realErrors.length} png=${png}`);
   realErrors.slice(0, 8).forEach(e => console.log('  ', e));
-  console.log('  screenshot exists:', existsSync(`/tmp/mm_${shot}.png`));
 }
 srv.close();
-console.log('HEADLESS CHECK DONE');
+console.log(failures ? `HEADLESS CHECK FAILED (${failures} shot[s])` : 'HEADLESS CHECK DONE');
+process.exit(failures ? 1 : 0);

@@ -29,7 +29,9 @@ export class Vehicle {
     this.steer = 0;
     this.health = CAR.health;
     this.wheelSpin = 0;
-    this.colorIndex = Math.floor(Math.random() * CAR_COLORS.length);
+    // Polish pass 4: paint index is derived from the spawn transform, not Math.random —
+    // ?shot= replay and the smoke harness need identical cars for identical seeds.
+    this.colorIndex = (Math.abs(Math.round(x * 7 + z * 13)) + Math.round(heading * 5)) % CAR_COLORS.length;
     this.targetLane = null;        // traffic AI lane
     this.dead = false;
     this.burnT = 0;
@@ -124,6 +126,9 @@ export function resolveCircle(x, z, r, solids) {
 export class Traffic {
   constructor(scene, city, rng) {
     this.city = city;
+    // Keep the world-gen RNG so respawns stay deterministic per seed (same reason
+    // as Vehicle.colorIndex: shots and smoke runs must not drift between passes).
+    this.rng = rng;
     this.cars = [];
     for (let i = 0; i < TRAFFIC.carCount; i++) {
       const lane = city.roadLines[Math.floor(rng() * city.roadLines.length)];
@@ -200,9 +205,9 @@ export class Traffic {
   }
 
   respawn(c) {
-    const lane = this.city.roadLines[Math.floor(Math.random() * this.city.roadLines.length)];
-    const along = (Math.random() - 0.5) * 2 * HALF;
-    const dir = Math.random() < 0.5 ? 1 : -1;
+    const lane = this.city.roadLines[Math.floor(this.rng() * this.city.roadLines.length)];
+    const along = (this.rng() - 0.5) * 2 * HALF;
+    const dir = this.rng() < 0.5 ? 1 : -1;
     c.health = CAR.health;
     c.dead = false;
     c.burnT = 0;
@@ -293,12 +298,14 @@ export class Police {
         continue;
       }
 
-      // Beacon flash: alternate the lightbar halves.
+      // Beacon flash: alternate the lightbar halves, and sweep the intensity with a
+      // sine so the strobe reads as a rotating bar rather than an on/off binary.
       const beacons = u.mesh.userData.beacons;
       if (beacons) {
         const phase = Math.floor(state.time * 6) % 2;
-        beacons[0].material.emissiveIntensity = phase ? 2.5 : 0.3;
-        beacons[1].material.emissiveIntensity = phase ? 0.3 : 2.5;
+        const hot = 2.2 + Math.sin(state.time * 18) * 0.5;
+        beacons[0].material.emissiveIntensity = phase ? hot : 0.3;
+        beacons[1].material.emissiveIntensity = phase ? 0.3 : hot;
       }
 
       const dx = player.x - u.x, dz = player.z - u.z;

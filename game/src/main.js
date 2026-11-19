@@ -7,7 +7,7 @@
 // Witness pass 3: dt clamp + allocation-free loop re-verified; no further changes needed here.
 
 import * as THREE from '../vendor/three.min.js';
-import { WORLD, PLAYER, CAR, POLICE, WEAPONS, MISSIONS, makeRng } from './config.js';
+import { WORLD, PLAYER, CAR, POLICE, CAMERA, HEADLIGHTS, AUTOSAVE_SECONDS, WEAPONS, MISSIONS, makeRng } from './config.js';
 import { buildCity } from './city.js';
 import { Input } from './input.js';
 import { Sfx } from './sfx.js';
@@ -89,10 +89,10 @@ function attachHeadlights(car) {
   if (!car) return;
   if (!car.headlights) {
     const mk = (x) => {
-      const s = new THREE.SpotLight(0xfff2d0, 0, 42, 0.5, 0.45, 1.4);
+      const s = new THREE.SpotLight(0xfff2d0, 0, HEADLIGHTS.range, HEADLIGHTS.angle, 0.45, 1.4);
       s.position.set(x, 0.8, 2.2);
       s.target.position.set(x * 1.6, 0.1, 12);
-      s.shadow.camera.far = 45;
+      s.shadow.camera.far = HEADLIGHTS.range + 3;
       car.mesh.add(s, s.target);
       return s;
     };
@@ -101,9 +101,9 @@ function attachHeadlights(car) {
 }
 function updateHeadlights() {
   const night = 1 - updateSky.dayAmt;
-  const on = player.inCar && night > 0.25;
+  const on = player.inCar && night > 1 - HEADLIGHTS.nightThreshold; // HEADLIGHTS.nightThreshold is dayAmt
   for (const s of playerCar?.headlights || []) {
-    s.intensity += ((on ? 320 : 0) - s.intensity) * Math.min(1, 0.1);
+    s.intensity += ((on ? HEADLIGHTS.onIntensity : 0) - s.intensity) * Math.min(1, 0.1);
     s.visible = s.intensity > 1;
   }
 }
@@ -400,8 +400,8 @@ function updateCamera(dt) {
   }
 
   const target = player.inCar ? playerCar : player;
-  const back = player.inCar ? 10.0 : 5.8;
-  const height = player.inCar ? 4.7 : 3.0;
+  const back = player.inCar ? CAMERA.carBack : CAMERA.footBack;
+  const height = player.inCar ? CAMERA.carHeight : CAMERA.footHeight;
   const cx = target.x - Math.sin(camYaw) * back;
   const cz = target.z - Math.cos(camYaw) * back;
   // Keep the camera out of buildings AND out of the sky: clamp height under the
@@ -517,22 +517,22 @@ function tick(now) {
       sfx.engineOff();
     }
 
-    // Actions.
-    if (input.tapped('KeyF')) tryEnterCar();
-    if (input.tapped('KeyE')) { player.weaponIndex = (player.weaponIndex + 1) % WEAPONS.length; }
-    if (input.tapped('KeyQ')) { player.weaponIndex = (player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length; }
-    if (input.tapped('KeyT')) mission.advance();
+    // Actions — routed through the input bindings so remaps just work.
+    if (input.actionTapped('enter')) tryEnterCar();
+    if (input.actionTapped('weaponNext')) { player.weaponIndex = (player.weaponIndex + 1) % WEAPONS.length; }
+    if (input.actionTapped('weaponPrev')) { player.weaponIndex = (player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length; }
+    if (input.actionTapped('job')) mission.advance();
     if (input.tapped('KeyR') && !player.alive) respawn();
-    if (input.tapped('KeyG')) sideJobs.startNext();
-    if (input.tapped('KeyM') && minimap) hud.toast(minimap.toggle() ? 'Map shown' : 'Map hidden', 1.5);
+    if (input.actionTapped('sideJob')) sideJobs.startNext();
+    if (input.actionTapped('map') && minimap) hud.toast(minimap.toggle() ? 'Map shown' : 'Map hidden', 1.5);
     // Radio: J cycles stations (Shift-J back), K toggles mute — in-car only.
     if (player.inCar) {
-      if (input.tapped('KeyJ')) {
+      if (input.actionTapped('radio')) {
         const name = input.down('ShiftLeft') || input.down('ShiftRight') ? radio.prev() : radio.next();
         radio.jingle();
         hud.toast(name, 2);
       }
-      if (input.tapped('KeyK')) hud.toast(radio.toggleMute() ? '📻 Radio on' : '🔇 Radio muted', 2);
+      if (input.actionTapped('radioMute')) hud.toast(radio.toggleMute() ? '📻 Radio on' : '🔇 Radio muted', 2);
     }
     // Gas-station shop stops: B / N / V / C while parked at a station.
     if (economy.insideShop) {
@@ -543,9 +543,7 @@ function tick(now) {
     }
     player.fireT -= dt;
     const w = currentWeapon();
-    if (input.firing && player.fireT <= 0 && (w.auto || input.tapped('FireClick'))) {
-      // Holding LMB fires autos; semi-auto needs a fresh click each time.
-    }
+    // Holding LMB fires autos; semi-auto needs a fresh click each time.
     if (input.firing && player.fireT <= 0 && (w.auto || !attackHeld)) {
       attack();
       attackHeld = true;
@@ -603,20 +601,21 @@ function tick(now) {
 
   // Speed-reactive FOV: a subtle cinematic push at high speed.
   const speedRatio = player.inCar ? Math.abs(playerCar.speed) / CAR.maxSpeed : 0;
-  const targetFov = 62 + speedRatio * 12;
-  camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 4);
+  const targetFov = CAMERA.baseFov + speedRatio * CAMERA.speedFovPush;
+  camera.fov += (targetFov - camera.fov) * Math.min(1, dt * CAMERA.fovLerp);
   camera.updateProjectionMatrix();
 
   updateSky();
   sky.update(updateSky.fraction, sun.position.clone().normalize(), updateSky.dayAmt);
+  env.setMood(updateSky.dayAmt); // night chrome/glass reflections track the sky
   updateHeadlights();
   updateCamera(dt);
   hud.update(state, player, playerCar, mission, currentWeapon(), weather.label(), radio.label());
   minimap.update(dt, player, playerCar, mission, sideJobs, state);
 
-  // Autosave every 10 s.
+  // Autosave on a config-driven cadence (money, mission index, economy ledger).
   saveT += dt;
-  if (saveT > 10) {
+  if (saveT > AUTOSAVE_SECONDS) {
     saveT = 0;
     writeSave({ money: state.money, missionIndex: mission.index });
     economy.persist();

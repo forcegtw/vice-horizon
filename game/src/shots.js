@@ -63,4 +63,7 @@ export const SHOTS = {
   },
 };
 
-const WORLD_DAY = 150;
+// Polish pass 4: WORLD_DAY now mirrors WORLD.dayLength from config — if the cycle is
+// retuned, update that constant (not this one). Kept local because shots.js must stay
+// dependency-free for the smoke harness.
+const WORLD_DAY = 165; // == WORLD.dayLength (config.js)

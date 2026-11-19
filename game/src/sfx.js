@@ -32,6 +32,24 @@ export class Sfx {
 
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
 
+  // Master volume in [0, 1]: one knob for the whole mix (SFX + radio + engine).
+  setVolume(v) {
+    if (!this.master) return;
+    const t = Math.max(0, Math.min(1, v));
+    this.master.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.master.gain.setTargetAtTime(t * 0.5, this.ctx.currentTime, 0.08);
+  }
+
+  // Stop every long-lived oscillator so a paused/shot session leaves no hum behind.
+  dispose() {
+    if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; }
+    for (const n of [this._engineOsc, this._sirenOsc]) {
+      try { n?.stop(); } catch { /* already stopped */ }
+    }
+    this._engineOsc = null;
+    this._sirenOsc = null;
+  }
+
   _tone(freq, dur, type = 'square', gain = 0.2, dest = null, slideTo = null) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
@@ -40,7 +58,10 @@ export class Sfx {
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), t + dur);
-    g.gain.setValueAtTime(gain, t);
+    // Attack/decay envelope: 5 ms fade-in kills the click a step edge produces,
+    // then the exponential decay tail as before.
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g);
     g.connect(dest || this.master);
@@ -119,9 +140,13 @@ export class Sfx {
     if (on && this._sirenOsc) {
       const t = this.ctx.currentTime;
       this._sirenOsc.frequency.cancelScheduledValues(t);
-      this._sirenOsc.frequency.setValueAtTime(700, t);
-      this._sirenOsc.frequency.linearRampToValueAtTime(1100, t + 0.45);
-      this._sirenOsc.frequency.linearRampToValueAtTime(700, t + 0.9);
+      // Wail continues from wherever it was: don't snap to 700 each frame.
+      const cur = this._sirenOsc.frequency.value;
+      this._sirenOsc.frequency.setValueAtTime(cur, t);
+      // Phase from clock time so repeated calls stay on one continuous sweep.
+      const ph = (t % 1.8) / 1.8;
+      const target = ph < 0.5 ? 700 + 800 * (ph / 0.5) : 1500 - 800 * ((ph - 0.5) / 0.5);
+      this._sirenOsc.frequency.linearRampToValueAtTime(target, t + 0.05);
     } else if (!on && this._sirenOsc) {
       this._sirenOsc.stop();
       this._sirenOsc = null;
@@ -134,6 +159,9 @@ export class Sfx {
     const stepDur = 60 / bpm / 2;
     const bass = [55, 55, 65.4, 55, 49, 49, 58.3, 49];
     const arp = [220, 277, 330, 277, 196, 247, 294, 247];
+    // Music gain rides a slow fade so unmuting never pops; resume() restores it.
+    this.musicGain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+    this.musicGain.gain.exponentialRampToValueAtTime(0.16, this.ctx.currentTime + 2.5);
     this.musicTimer = setInterval(() => {
       if (!this.ctx || this.ctx.state !== 'running') return;
       const s = this._step % 8;

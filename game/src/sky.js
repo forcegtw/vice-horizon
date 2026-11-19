@@ -81,12 +81,14 @@ export class Sky {
     const night = 1 - day;
 
     // Day: blue dome, warm horizon. Dusk: orange band. Night: deep navy.
+    // Polish pass 4: dusk horizon warmed further (sunset over water), night horizon
+    // lifted slightly so the city silhouette still reads against the sky.
     const dayTop = new THREE.Color(0x5b93d6);
     const duskTop = new THREE.Color(0x2c2350);
     const nightTop = new THREE.Color(0x0a1226);
     const dayHor = new THREE.Color(0xd8e6f5);
-    const duskHor = new THREE.Color(0xe8794a);
-    const nightHor = new THREE.Color(0x1e2a44);
+    const duskHor = new THREE.Color(0xf07a3e);
+    const nightHor = new THREE.Color(0x24304c);
 
     const top = dayTop.clone().lerp(duskTop, Math.min(1, dusk * 1.4)).lerp(nightTop, night * 0.9);
     const hor = dayHor.clone().lerp(duskHor, dusk).lerp(nightHor, night);
@@ -95,6 +97,6 @@ export class Sky {
     this.uniforms.uSunDir.value.copy(sunDir);
     this.uniforms.uSunColor.value.setHex(dusk > 0.4 ? 0xff9a5a : 0xffdca8);
     this.uniforms.uSunSize.value = 0.028 + dusk * 0.02;
-    this.uniforms.uStarAmt.value = Math.pow(night, 1.5);
+    this.uniforms.uStarAmt.value = Math.pow(night, 1.3); // stars appear earlier in dusk
   }
 }
