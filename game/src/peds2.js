@@ -23,7 +23,7 @@ function districtDensity(x, z) {
 const IDLE_CHANCE = 0.18;    // fraction of peds that start as idlers/window-shoppers
 const IDLE_SPEED = 0.35;     // near-stationary browsing speed
 const PANIC_SPRINT = 6.4;    // sprint speed when stars are high
-const WALK_ANIM = { stroll: 3.2, hurry: 4.6, sprint: 6.0 };
+const WALK_ANIM = { stroll: 3.2, hurry: 4.6, sprint: 6.0 };   // stride cycles per second
 
 export class Peds2 {
   constructor(peds, city, rng) {

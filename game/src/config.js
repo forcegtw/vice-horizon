@@ -14,13 +14,15 @@ export const WORLD = {
 
 export const PLAYER = {
   walkSpeed: 8,
-  runSpeed: 14,
+  runSpeed: 14,        // sprint speed on Shift; must stay above TRAFFIC.carSpeed feel checks
   radius: 0.55,
   height: 1.7,
   maxHealth: 100,
   maxArmor: 100,
 };
 
+// Arcade car tuning. maxSpeed pairs with economy's speedMultiplier (+18% engine
+// tune); grip + turnRate decide how hard a corner the getaway can take at speed.
 export const CAR = {
   accel: 16,
   brake: 26,

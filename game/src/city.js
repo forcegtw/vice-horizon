@@ -241,14 +241,16 @@ export function buildCity(scene, rng) {
       color: 0x1e2026, roughness: 0.72, metalness: 0.18,   // asphalt with a mild wet sheen
       roughnessMap: (() => {
         // Cheap noise roughness map so light pools break up on the asphalt.
+        // Uses the same deterministic speckle hash as the pavement texture so a
+        // ?shot= replay gets the identical light-pool pattern every boot.
         const s = 128, c = document.createElement('canvas');
         c.width = c.height = s;
         const g2 = c.getContext('2d');
         g2.fillStyle = '#c0c0c0'; g2.fillRect(0, 0, s, s);
         for (let n = 0; n < 900; n++) {
-          const v = 120 + Math.floor(Math.random() * 130);
+          const v = 120 + Math.floor(speckle(n * 3 + 1) * 130);
           g2.fillStyle = `rgb(${v},${v},${v})`;
-          g2.fillRect(Math.random() * s, Math.random() * s, 3, 3);
+          g2.fillRect(speckle(n * 5 + 2) * s, speckle(n * 11 + 4) * s, 3, 3);
         }
         const t = new THREE.CanvasTexture(c);
         t.wrapS = t.wrapT = THREE.RepeatWrapping;

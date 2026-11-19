@@ -276,6 +276,8 @@ function respawn() {
   player.armor = 0;
   player.alive = true;
   player.x = 8; player.z = 30;
+  // Respawn forgives heat but not all of it: drop two stars' worth so a repeat
+  // offence still escalates, while cops already spawned get cleared below.
   wanted.heat = Math.max(0, wanted.heat - 200);
   wanted._syncStars(false);
   police.clear();

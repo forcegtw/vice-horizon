@@ -33,6 +33,7 @@ export class Sfx {
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
 
   // Master volume in [0, 1]: one knob for the whole mix (SFX + radio + engine).
+  // Uses setTargetAtTime rather than a hard set so a volume change never clicks.
   setVolume(v) {
     if (!this.master) return;
     const t = Math.max(0, Math.min(1, v));

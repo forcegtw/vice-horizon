@@ -52,5 +52,8 @@ export function writeSave(data) {
 }
 
 export function clearSave() {
+  // Wipes both ledgers (main save and the economy key) so a "reset progress"
+  // affordance can't leave half the state behind.
   try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem('vice-horizon-economy-v1'); } catch { /* ignore */ }
 }

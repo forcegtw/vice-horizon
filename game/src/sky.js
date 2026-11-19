@@ -95,5 +95,7 @@ export class Sky {
 
 // Module-level lerp targets for update(): [day, dusk, night] per band. Allocated
 // once so the per-frame path allocates only the two clone() results.
+// Dusk bands carry the strongest saturation change (orange horizon, purple top):
+// those two are what make the 165 s cycle read as a real sunset in screenshots.
 const SKY_TOP = [new THREE.Color(0x5b93d6), new THREE.Color(0x2c2350), new THREE.Color(0x0a1226)];
 const SKY_HOR = [new THREE.Color(0xd8e6f5), new THREE.Color(0xf07a3e), new THREE.Color(0x24304c)];

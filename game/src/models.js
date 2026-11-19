@@ -290,7 +290,8 @@ function buildTruck(paint) {
 // ---------------------------------------------------------------------------
 export function carMesh(color, styleHint) {
   // Numeric colors index PAINTS directly; anything else rolls deterministically
-  // off the paint table length so replayed frames never drift.
+  // off the paint table length so replayed frames never drift. The 0.618 golden
+  // ratio keeps the fallback paint away from PAINTS[0] (the common explicit pick).
   const idx = typeof color === 'number' && Number.isFinite(color)
     ? Math.abs(Math.floor(color)) % PAINTS.length
     : Math.floor(PAINTS.length * 0.618) % PAINTS.length;

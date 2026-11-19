@@ -118,6 +118,7 @@ export class Wanted {
 
   // HUD: percent progress toward the next star (for a heat bar), clamped to [0, 1].
   heatRatio() {
+    // Progress toward the NEXT star within the current band (1.0 = full at 5 stars).
     const s = this.stars();
     if (s >= POLICE.maxWanted) return 1;
     const cur = s === 0 ? 0 : STAR_THRESHOLDS[s - 1];

@@ -182,8 +182,9 @@ export class SideJobs {
   }
 
   pass() {
-    // payout prefers the job's own record (delivery bonuses rewrite it), then the spec.
-    const payout = this.job.payout ?? this.job.spec?.payout ?? 0;
+    // payout prefers the job's own record (delivery bonuses rewrite it), then the
+    // spec; clamp at 0 so a malformed job record can't pay negative cash.
+    const payout = Math.max(0, this.job.payout ?? this.job.spec?.payout ?? 0);
     this.message(`JOB PASSED — $${payout}`, 5);
     this.sfx.cash();
     if (this.onReward) this.onReward(payout, this.job.name);

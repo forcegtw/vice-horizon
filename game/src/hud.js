@@ -227,6 +227,7 @@ export class Hud {
     if (missionText !== this._last.mission) {
       this._last.mission = missionText;
       this.el.mission.textContent = missionText;
+      // Hidden while empty so the reserved bottom strip never shows an empty panel.
       this.el.mission.style.display = missionText ? 'block' : 'none';
     }
 

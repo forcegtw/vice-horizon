@@ -36,6 +36,8 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       this._pressedOnce.add(e.code);
+      // preventDefault only on keys the browser would otherwise scroll / navigate
+      // with; game letters (F, T, G…) stay untouched so typing in devtools works.
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));

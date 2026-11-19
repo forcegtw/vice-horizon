@@ -45,6 +45,26 @@ Controls: **WASD** walk / drive · **Shift** sprint · **F** enter or steal a ca
 - Versioned localStorage saves with v1→v2 migration, remappable input bindings, and a
   deterministic `?shot=NAME&seed=N` screenshot mode
 
+## Architecture
+
+```
+game/index.html        shell: canvas + a11y status line, loads src/main.js as an ES module
+game/src/config.js     all tuning constants + mission table + seeded RNG (dependency-free)
+game/src/main.js       boot + the per-frame system pipeline (see the phase-order note there)
+game/src/{city,sky,env,weather}.js   world build & atmosphere (textures painted on canvas at boot)
+game/src/{vehicles,peds,peds2,models}.js  arcade physics, traffic/police AI, pedestrian rigs & life layer
+game/src/{missions,missions2}.js     story chain + side-job board (races / deliveries / rampage)
+game/src/{wanted,economy,save}.js    heat/stars, cash & upgrades, versioned localStorage saves
+game/src/{hud,minimap}.js            DOM/canvas UI: corner radar, big map, overlays
+game/src/{sfx,radio}.js              WebAudio synth: SFX + four procedural radio stations
+game/src/{input,shots}.js            remappable bindings + deterministic ?shot= staging
+```
+
+Cross-module contracts to know before editing: `city.solids` AABBs are the only collision
+data; `state` in main.js is the shared bus (money, wanted, police/traffic lists); peds2
+layers onto peds.js records rather than owning meshes; economy and the main save merge
+through `economy.bind(state)`. Smoke checks live in `scripts/smoke-*.mjs`.
+
 ## Notes
 
 - Runs fully offline: three.js r160 is vendored under `game/vendor/`, audio and textures are

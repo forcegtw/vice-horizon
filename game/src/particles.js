@@ -71,6 +71,11 @@ export class Particles {
     this.burst(x, y, z, 12, 0xffd76e, 6, 0.4, 0.9);
   }
 
+  // Dust puff for landings/hard stops: neutral grey, short life, low speed.
+  dust(x, y, z) {
+    this.burst(x, y, z, 8, 0x8a8a8a, 3, 0.5, 1.2);
+  }
+
   update(dt) {
     let any = false;
     for (let i = 0; i < MAX; i++) {

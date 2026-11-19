@@ -164,7 +164,8 @@ export class Weather {
     }
   }
 
-  // HUD summary string.
+  // HUD summary string. Thresholds mirror the PHASES intensity ladder (storm 1.0,
+  // rain 0.6, overcast 0.15) so the label never disagrees with what's falling.
   label() {
     if (this.intensity > 0.8) return '⛈ Storm';
     if (this.intensity > 0.3) return '🌧 Rain';

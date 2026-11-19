@@ -192,6 +192,8 @@ export class Missions {
   }
 
   // Player collects a passed mission's payout (called from main loop).
+  // Kept separate from update() so a payout can never double-fire from a
+  // re-entered update branch; the loop drains it once per frame.
   collectReward(state) {
     if (this.rewardPending > 0) {
       state.money += this.rewardPending;

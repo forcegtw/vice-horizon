@@ -40,6 +40,7 @@ void main() {
 
 // Colours the env is re-tinted from. Kept module-level so setMood does no allocation:
 // lerp targets are created once and reused every frame the sky changes.
+// Values are hex triples [sky, horizon, bounce, ground]; DAY/NIGHT are the lerp ends.
 const DAY = {
   sky: 0x8fb4e8, horizon: 0xd9e3f2, bounce: 0x6b7386, ground: 0x2a2c33,
 };

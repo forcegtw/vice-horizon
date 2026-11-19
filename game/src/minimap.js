@@ -160,7 +160,8 @@ export class Minimap {
     g.fill();
     g.restore();
 
-    // Compass tick: a small N in the top-right corner.
+    // Compass tick: a small N in the top-right corner (the map is north-up,
+    // unlike the rotating corner radar, so this N never moves).
     g.fillStyle = '#9fb0d8';
     g.font = 'bold 11px sans-serif';
     g.fillText('N', SIZE - 16, 14);

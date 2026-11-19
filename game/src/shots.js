@@ -4,6 +4,8 @@
 // forced per shot, never read from the live game. Every setup is pure w.r.t. the
 // seeded RNG — same seed, same screenshot — and settle frames let particles/HUD
 // converge before capture, don't skip them.
+// Timing summary: start = morning title, play = golden-hour cruise, end = blue-hour
+// night — the three beats cover the widest visual range in three captures.
 // WORLD_DAY mirrors config.dayLength — bump both if the cycle is retuned.
 
 export const SHOTS = {

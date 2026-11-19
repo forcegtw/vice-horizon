@@ -113,6 +113,7 @@ export class Peds {
       best.state = 'dead';
       best.deadT = 9;
       best.speed = 0; // the fall animation owns the body from here
+      best.fearLevel = 0; // layer state reset so the recycled ped doesn't panic on respawn
     }
     return best;
   }

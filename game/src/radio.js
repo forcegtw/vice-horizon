@@ -174,6 +174,7 @@ export class Radio {
     if (!this.sfx.ctx) return;
     const o = this.sfx.ctx.createOscillator();
     const g = this.sfx.ctx.createGain();
+    // Pitch-dropping sine: the classic 140 Hz -> 45 Hz thump.
     o.type = 'sine';
     o.frequency.setValueAtTime(140, when);
     o.frequency.exponentialRampToValueAtTime(45, when + 0.12);

@@ -50,7 +50,8 @@ export class Vehicle {
       const cap = throttle > 0 ? CAR.maxSpeed * maxScale : CAR.reverseSpeed;
       this.speed = THREE.MathUtils.clamp(this.speed + throttle * accel * dt, -cap, cap);
     } else {
-      // Engine drag + rolling friction.
+      // Engine drag + rolling friction; snap to 0 below a crawl so the speedo
+      // and idle engine sound settle instead of whispering forever.
       this.speed *= Math.pow(0.4, dt);
       if (Math.abs(this.speed) < 0.15) this.speed = 0;
     }

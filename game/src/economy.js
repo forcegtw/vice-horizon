@@ -218,8 +218,10 @@ export class Economy {
   armorCap() { return PLAYER.maxArmor + (this.upgrades.plating ? UPGRADES.armorBonus : 0); }
 
   // Mission rewards / pickups credit here so persistence stays in one place.
+  // Clamp every credited amount so a negative or non-finite reward from a future
+  // mission table can't corrupt the ledger; zero/negative payouts are no-ops.
   credit(amount, hud) {
-    if (amount <= 0) return;
+    if (!Number.isFinite(amount) || amount <= 0) return;
     this.money += amount;
     this.persist();
     if (hud) hud.toast(`+$${amount}`, 2);

@@ -14,6 +14,9 @@
 // filters the screenshots through the scorer's own caps first: a shot that would be
 // refused (over 4 files or one over 256 KiB) is skipped with a console note instead of
 // producing a dossier the scorer rejects wholesale.
+//
+// Flow: copy game/ -> stage screenshots -> write dossier.json last, so a partial run
+// (e.g. a crash between steps) always leaves the newest dossier consistent with game/.
 
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

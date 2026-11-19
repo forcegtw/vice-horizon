@@ -75,6 +75,8 @@ createServer((request, response) => {
       : 'no-store',
     'x-content-type-options': 'nosniff',
   });
+  // HEAD: headers above carry the metadata, then end with no body stream.
+  if (request.method === 'HEAD') { response.end(); return; }
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
   console.log(`game/ is on http://localhost:${port}`);
