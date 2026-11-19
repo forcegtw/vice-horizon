@@ -1,24 +1,28 @@
-// Particles: one pooled THREE.Points system for explosions, sparks and dust.
-// Each burst grabs a slice of the ring pool and animates positions/alpha per
-// frame; dead slots are reclaimed, so a busy firefight never grows.
-// Pool size 600 is the ceiling; bursts beyond it silently reuse the oldest slots.
-// Alpha fades are per-particle; additive blending hides pool reuse nicely.
-// The dead-slot park check is a hard <= on the sentinel so a bounce that briefly
-// parks a particle at exactly y=-1000 also zeroes its colour.
+// particles.js — one pooled THREE.Points system shared by explosions, sparks
+// and dust. Each burst claims a slice of a ring buffer and animates position,
+// velocity and alpha per frame; dead slots are reclaimed, so a long firefight
+// never grows the pool. Pool size 600 is the hard ceiling — bursts past it
+// silently reuse the oldest slots. Additive blending plus per-particle colour
+// fades hide that reuse. Dead slots park far below the map AND zero their
+// colour: a position-only park used to leave a bright pixel floating in
+// reflections when additive blending sampled a parked slot at grazing angles.
 
 import * as THREE from '../vendor/three.min.js';
 
-const MAX = 600;
+const POOL = 600;
+const PARK_Y = -1000;
+const GRAVITY = 9.8;
+const FLOOR_BOUNCE = 0.3;
 
 export class Particles {
   constructor(scene) {
-    this.pos = new Float32Array(MAX * 3);
-    this.col = new Float32Array(MAX * 3);
-    this.vel = new Float32Array(MAX * 3);
-    this.life = new Float32Array(MAX);   // remaining seconds
-    this.maxLife = new Float32Array(MAX);
-    this.size = new Float32Array(MAX);
-    this.cursor = 0;
+    this.pos = new Float32Array(POOL * 3);
+    this.col = new Float32Array(POOL * 3);
+    this.vel = new Float32Array(POOL * 3);
+    this.life = new Float32Array(POOL);     // seconds remaining
+    this.maxLife = new Float32Array(POOL);
+    this.size = new Float32Array(POOL);
+    this.cursor = 0;                        // next slot a burst claims
     this.alive = 0;
 
     this.geo = new THREE.BufferGeometry();
@@ -38,31 +42,34 @@ export class Particles {
     scene.add(this.points);
   }
 
+  // Spawn `count` particles at a point with a colour and radial velocity.
+  // life/size get mild random spread so bursts look organic.
   burst(x, y, z, count, color, speed, life = 0.9, size = 1.4) {
-    const c = new THREE.Color(color);
+    const base = new THREE.Color(color);
     for (let n = 0; n < count; n++) {
       const i = this.cursor;
-      this.cursor = (this.cursor + 1) % MAX;
-      const a = Math.random() * Math.PI * 2;
-      const up = Math.random();
+      this.cursor = (this.cursor + 1) % POOL;
+      const angle = Math.random() * Math.PI * 2;
+      const rise = Math.random();
       this.pos[i * 3] = x;
       this.pos[i * 3 + 1] = y;
       this.pos[i * 3 + 2] = z;
-      this.vel[i * 3] = Math.cos(a) * speed * (0.3 + Math.random() * 0.7);
-      this.vel[i * 3 + 1] = up * speed * 0.9 + 2;
-      this.vel[i * 3 + 2] = Math.sin(a) * speed * (0.3 + Math.random() * 0.7);
+      const spread = speed * (0.3 + Math.random() * 0.7);
+      this.vel[i * 3] = Math.cos(angle) * spread;
+      this.vel[i * 3 + 1] = rise * speed * 0.9 + 2;
+      this.vel[i * 3 + 2] = Math.sin(angle) * spread;
       const shade = 0.7 + Math.random() * 0.5;
-      this.col[i * 3] = Math.min(1, c.r * shade + 0.25);
-      this.col[i * 3 + 1] = c.g * shade;
-      this.col[i * 3 + 2] = c.b * shade;
+      this.col[i * 3] = Math.min(1, base.r * shade + 0.25);
+      this.col[i * 3 + 1] = base.g * shade;
+      this.col[i * 3 + 2] = base.b * shade;
       this.life[i] = life * (0.6 + Math.random() * 0.6);
       this.maxLife[i] = this.life[i];
       this.size[i] = size * (0.6 + Math.random());
     }
   }
 
+  // Fireball core, hot sparks, then a slow smoke tail — three bursts, one pool.
   explosion(x, y, z) {
-    // Fireball core, hot sparks, then a slow smoke tail — three bursts, one pool.
     this.burst(x, y, z, 60, 0xff8c3a, 14, 1.2, 2.2);
     this.burst(x, y + 1, z, 30, 0xffe08a, 8, 0.8, 1.6);
     this.burst(x, y + 0.5, z, 20, 0x555555, 5, 1.6, 2.8);
@@ -72,35 +79,40 @@ export class Particles {
     this.burst(x, y, z, 12, 0xffd76e, 6, 0.4, 0.9);
   }
 
-  // Dust puff for landings/hard stops: neutral grey, short life, low speed.
+  // Landing / hard-stop puff: neutral grey, short life, low speed.
   dust(x, y, z) {
     this.burst(x, y, z, 8, 0x8a8a8a, 3, 0.5, 1.2);
   }
 
   update(dt) {
-    let any = false;
-    for (let i = 0; i < MAX; i++) {
+    let dirty = false;
+    for (let i = 0; i < POOL; i++) {
       if (this.life[i] <= 0) {
-        // Park dead particles far below the map AND zero their colour: the
-        // position-only park used to leave a bright pixel floating in reflections
-        // when additive blending sampled the parked slot at grazing angles.
-        if (this.pos[i * 3 + 1] > -100) {
-          this.pos[i * 3 + 1] = -1000;
-          this.vel[i * 3] = 0; this.vel[i * 3 + 1] = 0; this.vel[i * 3 + 2] = 0;
-          this.col[i * 3] = 0; this.col[i * 3 + 1] = 0; this.col[i * 3 + 2] = 0;
-          any = true;
+        // Park once, then leave it alone (dirty flag would otherwise churn).
+        if (this.pos[i * 3 + 1] > PARK_Y / 10) {
+          this.pos[i * 3 + 1] = PARK_Y;
+          this.vel[i * 3] = 0;
+          this.vel[i * 3 + 1] = 0;
+          this.vel[i * 3 + 2] = 0;
+          this.col[i * 3] = 0;
+          this.col[i * 3 + 1] = 0;
+          this.col[i * 3 + 2] = 0;
+          dirty = true;
         }
         continue;
       }
-      any = true;
+      dirty = true;
       this.life[i] -= dt;
-      this.vel[i * 3 + 1] -= 9.8 * dt;             // gravity
+      this.vel[i * 3 + 1] -= GRAVITY * dt;
       this.pos[i * 3] += this.vel[i * 3] * dt;
       this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
       this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
-      if (this.pos[i * 3 + 1] < 0.1) { this.vel[i * 3 + 1] *= -0.3; this.pos[i * 3 + 1] = 0.1; }
+      if (this.pos[i * 3 + 1] < 0.1) {
+        this.vel[i * 3 + 1] *= -FLOOR_BOUNCE;
+        this.pos[i * 3 + 1] = 0.1;
+      }
     }
-    if (any) {
+    if (dirty) {
       this.geo.attributes.position.needsUpdate = true;
       this.geo.attributes.color.needsUpdate = true;
     }
