@@ -1,10 +1,9 @@
 // Vice Horizon — main loop. Boots the renderer, builds the city, and runs the
-// pass 2: dt is clamped upstream; never trust a raw delta on the first frame after focus returns.
 // player/traffic/police/mission systems each frame. Supports a deterministic
 // screenshot mode via ?shot=NAME&seed=N.
-// Witness pass: frame budget target is 16.6 ms; profiler note — traffic cull dominates, revisit if city grows.
-// Witness pass 2: main loop stays allocation-free; per-frame garbage is what spikes the frame time.
-// Witness pass 3: dt clamp + allocation-free loop re-verified; no further changes needed here.
+// dt is clamped upstream; never trust a raw delta on the first frame after focus returns.
+// Frame budget target is 16.6 ms; profiler note — traffic cull dominates, revisit if city grows.
+// Main loop stays allocation-free; per-frame garbage is what spikes the frame time.
 
 import * as THREE from '../vendor/three.min.js';
 import { WORLD, PLAYER, CAR, POLICE, CAMERA, HEADLIGHTS, AUTOSAVE_SECONDS, WEAPONS, MISSIONS, makeRng } from './config.js';
@@ -51,7 +50,7 @@ const params = new URLSearchParams(location.search);
 const shotName = params.get('shot');
 const seed = Number(params.get('seed') ?? 1) || 1;
 const rng = makeRng(seed);
-Math.random; // (Math.random is avoided below; all spawning uses rng or a seeded variant)
+// Math.random is avoided below; all spawning uses rng or a seeded variant.
 
 const city = buildCity(scene, rng);
 const sky = new Sky(scene);
@@ -183,7 +182,7 @@ const state = {
     );
     beacon.position.set(0, 1.52, -0.3);
     mesh.add(beacon);
-    mesh.userData.beacon = beacon;
+    mesh.userData.beacons = [beacon]; // same contract Police.update uses for its lightbar flash
     scene.add(mesh);
     const v = new Vehicle(mesh, x, z, Math.atan2(player.x - x, player.z - z), 'police');
     v.fireT = 0;
@@ -320,8 +319,10 @@ function attack() {
   if (w.id === 'fist') {
     sfx.punch();
     const hitPed = peds.killNear(player.x, player.z, w.range);
-    if (hitPed) sideJobs.onPedKilled();
-    if (hitPed) wantedUp(1, 'pedHit');
+    if (hitPed) {
+      sideJobs.onPedKilled();
+      wantedUp(1, 'pedHit');
+    }
     // Also damages cops on foot / rival targets if close.
     for (const t of mission.targets) {
       if (t.kind === 'rival' && !t.done && Math.hypot(t.x - player.x, t.z - player.z) < w.range + 1) {
@@ -501,22 +502,28 @@ function tick(now) {
       sfx.engine(Math.abs(playerCar.speed) / CAR.maxSpeed);
       // Running people over raises heat.
       const hitPed = peds.killNear(playerCar.x, playerCar.z, 2.6);
-      if (hitPed) sideJobs.onPedKilled();
-      if (hitPed && Math.abs(playerCar.speed) > 4) wantedUp(1, 'pedHit');
+      if (hitPed) {
+        sideJobs.onPedKilled();
+        if (Math.abs(playerCar.speed) > 4) wantedUp(1, 'pedHit');
+      }
     } else {
       const sprint = input.down('ShiftLeft') || input.down('ShiftRight');
       const spd = sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
       const len = Math.hypot(f, s) || 1;
       const dirX = (f / len), dirZ = (s / len);
-      // Movement is camera-relative.
-      const moveAng = camYaw + Math.atan2(dirX * spd, dirZ * spd) * 0;
+      // Movement is camera-relative (the stray atan2 ternary from pass 2 is gone:
+      // moveAng was never read, so it is not computed either).
       if (f || s) {
         const worldAng = camYaw + Math.atan2(dirX, dirZ);
         player.heading = worldAng;
         const nx = player.x + Math.sin(worldAng) * spd * (Math.abs(f) + Math.abs(s)) / len * dt * Math.sign(f || 1);
         const nz = player.z + Math.cos(worldAng) * spd * (Math.abs(f) + Math.abs(s)) / len * dt * Math.sign(f || 1);
         const hit = resolveCircle(nx, nz, PLAYER.radius, city.solids);
-        player.x = hit.x; player.z = hit.z;
+        if (hit.blocked) {
+          // Squashed against a wall: keep the old spot so the ped can't tunnel.
+        } else {
+          player.x = hit.x; player.z = hit.z;
+        }
         player.phase += dt * spd * 1.6;
         const swing = Math.sin(player.phase) * 0.55;
         const limbs = playerGroup.userData.limbs;

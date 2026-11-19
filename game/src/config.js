@@ -1,14 +1,9 @@
 // Central tuning constants for Vice Horizon. Everything gameplay-flavoured lives here so
-// pass 2: keep this file dependency-free so every module can import it without cycles.
 // systems stay small and the feel can be adjusted in one place.
-// Witness pass 2: keep units explicit in names (MS, MPS) so tuning edits stay unambiguous.
-// Witness pass 3: constants verified against consumer modules; no value changes in this pass.
-
-// Witness pass: tweak gameplay feel here only; per-system magic numbers elsewhere are considered bugs.
-// Polish pass 4: camera boom lengths, FOV push and headlight thresholds were inline in
-// main.js — pulled here so a controller-user retune never touches loop code.
-// Final polish: HUD minimap sizing lives in hud.js as HUD.MINIMAP_* so the corner radar and
-// its draw code share one source of truth.
+// Keep this file dependency-free so every module can import it without cycles.
+// Units are explicit in names where ambiguity is possible (MS, MPS).
+// Camera boom lengths, FOV push and headlight thresholds live here too, so a
+// controller-user retune never touches loop code.
 export const WORLD = {
   blocks: 10,          // city is blocks x blocks of streets and lots
   lotSize: 84,         // metres per block cell

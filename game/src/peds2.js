@@ -3,9 +3,8 @@
 // (peds.js), not a replacement: it reuses the existing ped records and meshes
 // and only augments the per-ped state machine, so the ped count, rig and
 // recycling stay untouched. main.js runs peds.update() then peds2.update().
-// Final polish: district density is written onto the ped (it was being written onto
-// the Peds2 instance, so per-ped density never updated after spawn) and the idle
-// sway now uses a stable per-ped lean instead of a fresh random each frame.
+// District density is written onto the ped (per-ped, refreshed on the move) and
+// the idle sway uses a stable per-ped lean instead of a fresh random each frame.
 
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
@@ -162,10 +161,8 @@ export class Peds2 {
       const x = lane.axis === 'z' ? lane.line + side : along;
       const z = lane.axis === 'z' ? along : lane.line + side;
       if (districtDensity(x, z) < 1.0) continue; // docks stay sparse
-      const mesh = null; // no new meshes: donors are repositioned instead
-      void mesh;
-      // Cheap variant: pull the nearest idle/walking ped far from the player
-      // and teleport them into the busy district — no new meshes allocated.
+      // No new meshes: an existing distant ped is repositioned into the busy
+      // district, so the ped cap and draw-call count stay fixed.
       let donor = null, bd = -1;
       const focus = this.playerFocus || { x: 0, z: 0 };
       for (const p of this.peds.peds) {

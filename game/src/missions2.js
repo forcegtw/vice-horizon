@@ -1,11 +1,10 @@
-// missions2.js — side-job system pass 2: checkpoint races, timed delivery
-// runs and a rampage challenge. Runs alongside the main Missions chain
-// (main.js owns the job trigger key); each job owns one reused 3D marker so
-// the scene graph never grows. Rewards are reported through onReward so the
-// money flow keeps a single writer (state.money is credited in main.js).
-// All positions are snapped to the road grid via city.roadLines, matching
-// how Missions.randomStreetSpot works, so every target is reachable by car.
-// Final polish: blips() guards a race job whose route was never built, and the
+// missions2.js — side-job system: checkpoint races, timed delivery runs and a
+// rampage challenge. Runs alongside the main Missions chain (main.js owns the job
+// trigger key); each job owns one reused 3D marker so the scene graph never grows.
+// Rewards are reported through onReward so the money flow keeps a single writer
+// (state.money is credited in main.js). All positions are snapped to the road grid
+// via city.roadLines, matching Missions.randomStreetSpot, so every target is
+// reachable by car. blips() guards a race job whose route was never built, and the
 // delivery bonus is clamped so a fast haul can never pay more than +25%.
 
 import * as THREE from '../vendor/three.min.js';
@@ -183,7 +182,8 @@ export class SideJobs {
   }
 
   pass() {
-    const payout = this.job.payout ?? this.job.spec?.payout;
+    // payout prefers the job's own record (delivery bonuses rewrite it), then the spec.
+    const payout = this.job.payout ?? this.job.spec?.payout ?? 0;
     this.message(`JOB PASSED — $${payout}`, 5);
     this.sfx.cash();
     if (this.onReward) this.onReward(payout, this.job.name);

@@ -1,12 +1,8 @@
 // Sky: a big inverted sphere with a vertex-gradient shader, a sun disc glow baked
-// pass 2: sun direction must match env.js dome highlight or reflections disagree.
-// into the same shader, and a sprinkle of stars that fade in at night.
-// Uniforms are driven by the day/night clock in env/main, so one draw call covers dusk to dark.
-// Witness pass: shader uniforms are the only live state; geometry is static after first build.
-// Witness pass 2: star twinkle rides a cheap time uniform, no per-frame geometry writes.
-// Witness pass 3: sky dome stays one draw call; dusk/night lerps unchanged.
-// Final polish: the six per-frame Color allocations in update() moved to module
-// constants — the loop runs 60x/s and this was its only steady garbage.
+// into the same shader (its direction must match env.js's dome highlight or
+// reflections disagree), and a sprinkle of stars that fade in at night.
+// Uniforms are driven by the day/night clock in main.js, so one draw call covers
+// dusk to dark; shader uniforms are the only live state after the first build.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -45,6 +41,7 @@ void main() {
     vec3 cell = floor(normalize(vDir) * 220.0);
     float s = hash(cell);
     if (s > 0.9975) {
+      // Twinkle from the cell hash itself: deterministic, no time uniform needed.
       float tw = 0.6 + 0.4 * sin(s * 90.0);
       col += vec3(0.9, 0.95, 1.0) * uStarAmt * tw * smoothstep(0.05, 0.3, vDir.y);
     }

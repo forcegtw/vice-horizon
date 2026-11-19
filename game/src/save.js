@@ -1,15 +1,11 @@
 // Save/load: money, mission progress and stats persist to localStorage.
-// pass 2: schema version lives first in the object; validate it before trusting other fields.
+// Schema version lives first in the object; validate it before trusting other fields.
 // Parse failures or malformed saves return null, so a corrupt entry starts fresh
-// instead of crashing boot.
-// Witness pass: SAVE_KEY contents are user-local only; bump the schema version before changing fields.
-// Witness pass 2: writes are try/caught; quota errors degrade to a silent no-save, never a crash.
-// Witness pass 3: schema-version-first rule still holds; loadSave validates money before use.
-// Final polish: non-finite money from a hand-edited save is rejected outright (a NaN
-// used to slip through the version check and poison the HUD).
-// Polish pass 4: full schema versioning — old saves without a version field are migrated
-// (v1 assumed) rather than discarded, so players keep their cash across this update.
-// Money is also range-checked and non-finite values are rejected.
+// instead of crashing boot. Writes are try/caught — quota errors degrade to a
+// silent no-save, never a crash. Old saves without a version field are migrated
+// (v1 assumed) rather than discarded; money is range-checked and non-finite
+// values rejected so a hand-edited save can't poison the HUD.
+// Bump SAVE_SCHEMA_VERSION in config.js before changing persisted fields.
 
 import { SAVE_KEY, SAVE_SCHEMA_VERSION } from './config.js';
 
@@ -37,6 +33,8 @@ export function loadSave() {
     if (!migrated) return null;
     if (!Number.isFinite(migrated.money)) return null;
     if (migrated.money < 0) migrated.money = 0; // corrupt/below-zero resets to broke, not null
+    // Mission index is clamped by the caller (main.js), so no range check here —
+    // keep this module's contract: money + version only.
     return migrated;
   } catch {
     return null;

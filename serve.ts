@@ -48,6 +48,8 @@ createServer((request, response) => {
     return;
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
+  // normalize() after join would let encoded slashes smuggle paths out of game/;
+  // joining the normalized segments first keeps everything under root.
   const file = resolve(join(root, normalize(pathname)));
   if (file !== root && !file.startsWith(root + sep)) {
     response.writeHead(403).end('forbidden');

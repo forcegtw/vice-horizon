@@ -3,7 +3,7 @@
 // markers and police blips when wanted. Owns its own canvas + HUD chip so the
 // existing Hud minimap stays untouched; Hud just calls hud.setMinimapVisible()
 // to hide its copy when this one is up. Coarse redraw timer, not per-frame.
-// Final polish: the toggle label now tracks state on both open and close.
+// The toggle label tracks state on both open and close.
 
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
@@ -86,6 +86,7 @@ export class Minimap {
     if (!this.visible) return;
     this.redrawT -= dt;
     if (this.redrawT > 0) return;
+    // 10 Hz redraw: a map has no per-frame state, so this stays plenty smooth.
     this.redrawT = 0.1;
     this.draw(player, playerCar, mission, sideJobs, state);
   }

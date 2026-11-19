@@ -1,16 +1,11 @@
 // Input handling: keyboard state, pointer look, and pause/menu toggles.
-// pass 2: keydown repeat events are ignored; holding a key relies on the Set state only.
-// The camera follows the player automatically; mouse drag is optional free look.
-// Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent.
-// Witness pass: preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.
-// Witness pass 2: pointer lock loss auto-pauses; input must never read stale keys after resume.
-// Witness pass 3: blur clears keys and tapped state — resume starts from a clean slate.
-// Final polish: blur also drops the pressed mouse button, so refocusing after an
-// alt-tab can't leave the weapon firing forever.
-// Polish pass 4: game actions are defined as an action->codes map so rebinding is a
-// one-liner (Input.rebind('enter', ['KeyF'])) instead of an edit inside moveAxis /
-// the loop. moveAxis and semantic helpers route through it; physical-code queries
-// (down/tapped) keep working unchanged.
+// Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent;
+// keydown repeat events are ignored — holding a key relies on the Set state only.
+// preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.
+// Blur clears keys, tapped state and the pressed mouse button, so resume starts
+// from a clean slate and refocusing after an alt-tab can't leave the weapon firing.
+// Game actions are defined as an action->codes map so rebinding is a one-liner
+// (Input.rebind('enter', ['KeyF'])) instead of an edit inside moveAxis / the loop.
 
 export class Input {
   constructor(canvas) {

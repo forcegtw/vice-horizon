@@ -27,9 +27,16 @@ for (const shot of shots) {
   await new Promise((resolve) => {
     const proc = spawn(shell, [
       '--headless', '--no-sandbox', '--disable-gpu',
+      '--disable-dev-shm-usage',
+      // Chrome 156+: software WebGL needs an explicit opt-in, or the renderer dies
+      // before the PNG is written (no capture, and GPU-state chatter on stderr).
+      '--enable-unsafe-swiftshader',
       '--enable-logging=stderr', '--v=0', '--hide-scrollbars',
       `--screenshot=${out}`, '--window-size=1280,720',
-      '--virtual-time-budget=7000',
+      // Chrome 156: --virtual-time-budget deadlocks with the game's rAF loop under
+      // software WebGL (no PNG ever lands). --timeout gives the same settle window
+      // on the real clock and captures reliably.
+      '--timeout=6000',
       `http://127.0.0.1:8793/index.html?shot=${shot}&seed=1`,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr.on('data', (d) => {

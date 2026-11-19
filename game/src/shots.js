@@ -1,13 +1,10 @@
 // Deterministic screenshot mode: ?shot=NAME&seed=N freezes the sim into a staged
-// pass 2: HUD state is forced per shot; never rely on the live game for a staged capture.
 // tableau, lets it settle, then the grader captures the canvas. Each shot name maps
-// to a setup function that positions the player, camera, cars and HUD.
-// Witness pass: every shot setup must be deterministic; no Math.random, only the seeded makeRng stream.
-// Same seed, same screenshot: every setup is pure w.r.t. the seeded RNG.
-// Witness pass 3: settle frames let particles/HUD converge before capture, don't skip them.
-// Final polish: the play shot's traffic-clearing loop drops its redundant inner
-// condition and the start shot reuses the shot helper's own overlay copy.
-// Witness pass 3: WORLD_DAY mirrors config.dayLength — bump both if the cycle is retuned.
+// to a setup function that positions the player, camera, cars and HUD; HUD state is
+// forced per shot, never read from the live game. Every setup is pure w.r.t. the
+// seeded RNG — same seed, same screenshot — and settle frames let particles/HUD
+// converge before capture, don't skip them.
+// WORLD_DAY mirrors config.dayLength — bump both if the cycle is retuned.
 
 export const SHOTS = {
   start(state) {

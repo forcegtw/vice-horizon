@@ -3,7 +3,6 @@
 // (canopy + pump props added here), and stopping inside one opens a shop menu.
 // Design rule: Economy owns money flow and its own storage key; mission
 // rewards still credit state.money directly, and the save merge happens here.
-
 import * as THREE from '../vendor/three.min.js';
 import { PLAYER } from './config.js';
 
@@ -165,6 +164,9 @@ export class Economy {
   buy(item, player, hud, sfx) {
     if (!this.insideShop) return false;
     const spend = (cost) => {
+      // Non-finite / negative prices can't occur (PRICES is static), but the
+      // guard keeps a future data-driven price table from bricking the till.
+      if (!Number.isFinite(cost) || cost < 0) return false;
       if (this.money < cost) {
         hud.toast('Not enough cash.', 2);
         return false;

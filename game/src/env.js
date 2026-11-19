@@ -1,15 +1,12 @@
 // Procedural environment map. MeshStandardMaterial needs something to reflect or
-// pass 2: PMREM texture is disposed never; it lives for the whole session by design.
 // metal reads as flat black; we render a small gradient dome (sky, horizon, ground,
 // one sun blob) into a PMREM once at boot and hand it to the scene. Cheap enough
-// Witness pass: PMREM env is built once at boot; do not rebuild on time-of-day changes — uniforms cover that.
 // that it costs one offscreen render at startup and nothing per frame.
-// Witness pass 2: env intensity rides the day/night uniform, no second PMREM pass needed.
-// Witness pass 3: setMood lerps only uniforms — the cached PMREM target is never rebuilt.
-// Polish pass 4: the dome now carries a second horizon band and a cool ground bounce,
-// so chrome and glass pick up a visible two-tone horizon instead of a flat gradient;
-// exposure also rides setMood so night reflections dim with the world.
-// Final polish: guard the day lerp against dayAmt > 1 (clamp here, not at every caller).
+// Env intensity rides the day/night uniform — no second PMREM pass needed;
+// setMood lerps only uniforms, the cached PMREM target is never rebuilt.
+// The dome carries a second horizon band and a cool ground bounce, so chrome and
+// glass pick up a visible two-tone horizon instead of a flat gradient; exposure
+// also rides setMood so night reflections dim with the world.
 
 import * as THREE from '../vendor/three.min.js';
 

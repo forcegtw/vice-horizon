@@ -2,13 +2,13 @@
 // WebAudio — every station is a tiny sequencer (bass line, lead arp, drums)
 // with its own scale, tempo and waveform, so switching stations audibly changes
 // the mood without any audio files. The radio only plays while the player is
-// in a car; J / Shift-J cycle stations, R mutes, and the HUD gets the station
+// in a car; J / Shift-J cycle stations, K mutes, and the HUD gets the station
 // name via Radio.label(). All scheduling runs on the shared Sfx context.
 // Design rule: Radio owns its oscillators and never writes to the DOM — the
 // HUD readout is dirty-checked in hud.js.
-// Final polish: start() honors the mute toggle so unpausing a muted radio cannot
-// resurrect a silent scheduler, and stop() resets the lookahead clock so a long
-// pause doesn't make the next resume schedule a burst of overdue steps.
+// start() honors the mute toggle so unpausing a muted radio cannot resurrect a
+// silent scheduler, and stop() resets the lookahead clock so a long pause
+// doesn't make the next resume schedule a burst of overdue steps.
 
 const STATIONS = [
   {
@@ -120,7 +120,10 @@ export class Radio {
     const st = this.station();
     if (st.id === 'off') { this.stop(); return; }
     const stepDur = 60 / st.bpm / 2;
-    while (this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000) {
+    // Hard cap on catch-up steps: a throttled background tab can fall far behind,
+    // and scheduling hundreds of overdue oscillators at once spikes the audio thread.
+    let guard = 0;
+    while (this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000 && guard++ < 16) {
       const s = this.step % 8;
       const t = this.nextTime;
       // Bass: root-driven pattern, gated envelope on the radio bus.

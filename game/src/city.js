@@ -1,11 +1,9 @@
 // Procedural city: a grid of blocks separated by streets, each block packed with a few
 // slab towers, plus lamp posts, park clusters and a waterfront strip. Geometry is merged
 // into a handful of draw calls so the whole town stays cheap on a laptop GPU.
-// Witness pass: HALF is derived once here; treat as immutable — re-deriving per-system caused drift in an early build.
-// HALF is the half-extent of the street grid; every system (traffic, peds, missions)
-// clamps against it instead of re-deriving bounds from WORLD.
-// Witness pass 2: block layout is seeded from WORLD seed, so city shape is reproducible across reloads.
-// Witness pass 3: HALF clamp contract unchanged; facade texture still painted once per style.
+// HALF is the half-extent of the street grid, derived once here; treat as immutable —
+// every system (traffic, peds, missions) clamps against it instead of re-deriving bounds.
+// Block layout is seeded from the world seed, so city shape is reproducible across reloads.
 
 import * as THREE from '../vendor/three.min.js';
 import { WORLD } from './config.js';

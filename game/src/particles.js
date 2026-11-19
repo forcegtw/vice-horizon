@@ -1,12 +1,10 @@
 // Particles: one pooled THREE.Points system for explosions, sparks and dust.
-// pass 2: burst spawn order is FIFO into the ring so replayed frames look stable.
-// Each burst grabs a slice of the pool and animates positions/alpha per frame.
-// The pool is a ring: dead slots are reclaimed, so a busy firefight never grows.
-// Witness pass: pool size 600 is the ceiling; bursts beyond it silently reuse the oldest ring slots.
-// Witness pass 2: alpha fades are per-particle, additive blending hides pool reuse nicely.
-// Witness pass 3: ring cursor wraps deterministically; gravity/bounce constants unchanged.
-// Final polish: dead-slot park check is now a hard <= on the sentinel so a bounce that
-// briefly parks a particle at exactly y=-1000 also zeroes its colour.
+// Each burst grabs a slice of the ring pool and animates positions/alpha per
+// frame; dead slots are reclaimed, so a busy firefight never grows.
+// Pool size 600 is the ceiling; bursts beyond it silently reuse the oldest slots.
+// Alpha fades are per-particle; additive blending hides pool reuse nicely.
+// The dead-slot park check is a hard <= on the sentinel so a bounce that briefly
+// parks a particle at exactly y=-1000 also zeroes its colour.
 
 import * as THREE from '../vendor/three.min.js';
 

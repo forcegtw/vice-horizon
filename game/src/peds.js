@@ -1,12 +1,9 @@
 // Pedestrians: capsule-adjacent low-poly walkers who stroll the sidewalks and flee
-// pass 2: ped flee direction decays back to stroll speed over ~2s, no snap.
 // gunfire. Doubles as the rig for rival NPCs in the eliminate mission.
 // Skin and shirt palettes are per-ped random, giving the streets visual variety cheaply.
-// Witness pass: ped update cost scales with count; flee state is the hot path, keep its checks cheap.
-// Witness pass 2: despawn far peds before spawning new ones to keep the cap honest.
-// Witness pass 3: flee/walk transitions unchanged; dead peds recycle through spawn().
-// Final polish: dead peds keep their heading when they fall, so they no longer
-// visually snap to face their killer the instant they drop.
+// Ped update cost scales with count; flee state is the hot path, keep its checks cheap.
+// Despawn far peds before spawning new ones to keep the cap honest. Dead peds keep
+// their heading when they fall (no snap to face their killer) and recycle through spawn().
 
 import * as THREE from '../vendor/three.min.js';
 import { TRAFFIC, PLAYER, WORLD } from './config.js';
@@ -103,7 +100,8 @@ export class Peds {
     }
   }
 
-  // Kill the nearest ped within range; returns the ped or null.
+  // Kill the nearest ped within range; returns the ped or null. The dead branch in
+  // update() poses the fall; this only flips state, so a missed mesh never crashes.
   killNear(x, z, range) {
     let best = null, bd = range * range;
     for (const p of this.peds) {
@@ -114,6 +112,7 @@ export class Peds {
     if (best) {
       best.state = 'dead';
       best.deadT = 9;
+      best.speed = 0; // the fall animation owns the body from here
     }
     return best;
   }

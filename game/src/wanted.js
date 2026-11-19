@@ -4,9 +4,8 @@
 // only has to call Wanted.update(dt, ...).
 // Design rule: the star display stays in HUD; this module owns only the numeric
 // heat and its escalation/decay timers, so save/shot staging can set wanted
-// directly without going through here.
-// Final polish: heatRatio() clamps to [0,1] so an over-banked heat value (e.g. after
-// missionHeat floors past a threshold) can't push the heat bar past full.
+// directly without going through here. heatRatio() clamps to [0, 1] so an
+// over-banked heat value can't push the heat bar past full.
 
 import { POLICE } from './config.js';
 
@@ -37,9 +36,10 @@ export class Wanted {
     this.escaped = false;
   }
 
-  // Register a crime. amount is optional multiplier (e.g. spree).
+  // Register a crime. amount is an optional multiplier (e.g. spree); an unknown kind
+  // falls back to the generic 40-heat default so a typo can never zero out a crime.
   crime(kind, amount = 1) {
-    const add = (CRIME_HEAT[kind] ?? 40) * amount;
+    const add = Math.max(0, (CRIME_HEAT[kind] ?? 40)) * Math.max(0, amount);
     this.heat += add;
     this.crimeCount += amount;
     this.sightT = PURSUIT_TIMEOUT;
@@ -60,6 +60,7 @@ export class Wanted {
     if (this.heat <= 0) return;
     this.heat = 0;
     this.state.wanted = 0;
+    this.state.wantedCooldown = 0; // stale cooldown would keep ticking on an already-clean state
     this.sightT = PURSUIT_TIMEOUT;
     this.escaped = reason === 'escape';
     if (this.hud) this.hud.toast(reason === 'escape' ? 'You lost the heat.' : 'Heat cleared.');

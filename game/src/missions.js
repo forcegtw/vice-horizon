@@ -1,13 +1,11 @@
 // Missions: objective markers, briefs, completion checks and rewards.
-// pass 2: rewards are credited once, inside the completion branch, not in the update loop.
 // Three chained jobs drive the open world: boost a car, run cash, clear lookouts.
 // Each job owns its own update so adding a fourth never means touching the main loop.
-// Witness pass: mission state machine steps forward only; restart = full re-init, never rewinding steps.
-// Witness pass 2: objective markers poll at low rate; only state transitions touch HUD text.
-// Witness pass 3: reward credit stays inside the completion branch — never in the update loop.
-// Final polish: pointAtNearest tolerates a missing player ref (shot staging calls start()
-// before main.js hands over the player), and the car-delivery spawn no longer rolls an
-// unused angle.
+// Mission state machine steps forward only; restart = full re-init, never rewinding steps.
+// Objective markers poll at low rate; only state transitions touch HUD text.
+// Rewards are credited once, inside the completion branch — never in the update loop.
+// pointAtNearest tolerates a missing player ref (shot staging calls start() before
+// main.js hands over the player).
 
 import * as THREE from '../vendor/three.min.js';
 import { MISSIONS, WORLD } from './config.js';

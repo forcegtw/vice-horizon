@@ -6,8 +6,8 @@
 // ?shot= replays stay stable.
 // Design rule: this module never mutates lights it does not own — the flash light
 // and fog are created here and only touched here.
-// Final polish: fog density lerp uses a dt-scaled factor instead of a fixed 0.02,
-// so the storm haze settles at the same rate at 30 fps and 144 fps.
+// Fog density lerp uses a dt-scaled factor, so the storm haze settles at the same
+// rate at 30 fps and 144 fps.
 
 import * as THREE from '../vendor/three.min.js';
 

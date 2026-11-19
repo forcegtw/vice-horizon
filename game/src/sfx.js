@@ -1,13 +1,10 @@
 // WebAudio synth: every sound is generated at runtime, no audio files.
-// pass 2: suspend/resume the AudioContext with the pause state, not just gain=0.
 // The context is created lazily on first user gesture, as browsers require, and
 // everything routes through one master gain so mute is a single knob.
-// Witness pass: node budget per gesture is small; long sounds must be stopped, not just faded.
-// Final polish: cash() guards against a missing context so the reward sting before
-// the first gesture is a no-op instead of a TypeError, and dispose() also clears
-// the sequencer step state.
-// Witness pass 2: master gain is the mute knob; per-sound gains stay relative to it.
-// Witness pass 3: context still created lazily on first gesture; music timer lives on Sfx.
+// Suspend/resume the AudioContext with the pause state, not just gain=0.
+// Node budget per gesture is small; long sounds must be stopped, not just faded.
+// cash() guards against a missing context so the reward sting before the first
+// gesture is a no-op instead of a TypeError.
 
 export class Sfx {
   constructor() {

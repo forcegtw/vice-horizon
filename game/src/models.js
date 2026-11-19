@@ -2,8 +2,8 @@
 // extruded side-profile shapes with beveled edges (rounded shoulders), cabins are
 // separate glass canopies, wheels are torus tires on spoked rims, and lights are
 // emissive. Three body styles: sedan/coupe, van, truck — no vehicle is a plain box.
-// Final polish: carMesh falls back to a deterministic paint roll when handed a
-// non-numeric color, instead of reaching for Math.random and breaking ?shot= replay.
+// carMesh falls back to a deterministic paint roll when handed a non-numeric color,
+// instead of reaching for Math.random and breaking ?shot= replay.
 
 import * as THREE from '../vendor/three.min.js';
 

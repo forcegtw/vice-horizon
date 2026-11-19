@@ -1,12 +1,11 @@
 // Vehicles: geometry factory, player driving physics, traffic AI and police pursuit.
-// pass 2: handbrake multiplies lateral grip loss; tuning lives in config, not here.
-// Everything is simple kinematic arcade physics against the city's AABB colliders.
-// resolveCircle is shared here so peds and cars can push each other without a physics engine.
-// Witness pass: resolveCircle ordering matters — call for the player first so traffic yields to them.
-// Witness pass 2: arcade friction constants here; realistic tire models would wreck the feel.
-// Witness pass 3: player-first resolveCircle ordering unchanged; traffic yields as designed.
-// Final polish: the runaway guard also resets wheelSpin so a teleported car doesn't
-// spin its tires at highway rate, and police despawn respects an already-removed mesh.
+// Everything is simple kinematic arcade physics against the city's AABB colliders;
+// handbrake-style tuning lives in config, not here. resolveCircle is shared so peds
+// and cars can push each other without a physics engine — call it for the player
+// first so traffic yields to them. Realistic tire models would wreck the feel;
+// arcade friction constants are deliberate.
+// The runaway guard resets wheelSpin so a teleported car doesn't spin its tires at
+// highway rate, and police despawn respects an already-removed mesh.
 
 import * as THREE from '../vendor/three.min.js';
 import { CAR, TRAFFIC, POLICE, WORLD } from './config.js';
@@ -253,7 +252,7 @@ export class Police {
       const dist = 70 + rng() * 30;
       const x = THREE.MathUtils.clamp(player.x + Math.sin(ang) * dist, -HALF, HALF);
       const z = THREE.MathUtils.clamp(player.z + Math.cos(ang) * dist, -HALF, HALF);
-      const mesh = carMesh(3); // pearl white paint index
+      const mesh = carMesh(2); // pearl white paint (PAINTS[2] in models.js)
       // Police livery: blue stripe panels + lightbar.
       const stripeMat = new THREE.MeshStandardMaterial({ color: 0x1c3f8f, roughness: 0.4, metalness: 0.5 });
       for (const s of [-1, 1]) {

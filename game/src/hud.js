@@ -1,13 +1,10 @@
 // HUD: health/armor/money/wanted bars, minimap canvas with blips, mission text,
-// speedometer, and the start / pause / game-over overlays. Pure DOM + 2D canvas;
-// dirty-value caches keep unchanged bars and readouts from redrawing each frame.
-// Witness pass: DOM updates are gated by the dirty-value caches; never write textContent directly from the loop.
-// Witness pass 2: minimap redraws on a coarse timer, not per frame — keep it that way.
-// Witness pass 3: dirty-value caches confirmed on every readout; overlay still class-driven.
-// Final polish: layout moved from a wall of inline styles to one scoped <style> block with
-// named blocks (vitals / radar / status), the corner radar got a real drawn frame (bezel,
-// corner ticks, north tick) instead of a 1px strokeRect, and every text readout is now
-// dirty-checked — cash and the health/armor bar widths used to be written every frame.
+// speedometer, radio and weather readouts, and the start / pause / game-over
+// overlays. Pure DOM + 2D canvas; dirty-value caches keep unchanged bars and
+// readouts from redrawing each frame. DOM updates are gated by those caches —
+// never write textContent directly from the loop — and the overlay is class-driven.
+// Layout lives in one scoped <style> block with named blocks (vitals / radar /
+// status); the corner radar gets a real drawn frame (bezel, corner ticks, north tick).
 
 import { WORLD, MISSIONS } from './config.js';
 import { HALF } from './city.js';
@@ -213,6 +210,8 @@ export class Hud {
     }
 
     if (this.toastT > 0) {
+      // Fixed-step decay (1/60 per HUD frame); close enough for a countdown that
+      // only hides a banner, and it needs no dt plumbed through update().
       this.toastT -= 1 / 60;
       if (this.toastT <= 0) this.el.toast.style.display = 'none';
     }
