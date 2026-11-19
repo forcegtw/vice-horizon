@@ -5,6 +5,8 @@
 // Witness pass: ped update cost scales with count; flee state is the hot path, keep its checks cheap.
 // Witness pass 2: despawn far peds before spawning new ones to keep the cap honest.
 // Witness pass 3: flee/walk transitions unchanged; dead peds recycle through spawn().
+// Final polish: dead peds keep their heading when they fall, so they no longer
+// visually snap to face their killer the instant they drop.
 
 import * as THREE from '../vendor/three.min.js';
 import { TRAFFIC, PLAYER, WORLD } from './config.js';
@@ -47,6 +49,7 @@ export class Peds {
     for (const p of this.peds) {
       if (p.state === 'dead') {
         p.deadT -= dt;
+        // Face-plant: keep the pre-death heading, just rotate down onto the ground.
         p.mesh.rotation.x = Math.PI / 2;
         p.mesh.position.y = 0.2;
         if (p.deadT <= 0) {

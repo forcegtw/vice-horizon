@@ -5,6 +5,8 @@
 // Witness pass: pool size 600 is the ceiling; bursts beyond it silently reuse the oldest ring slots.
 // Witness pass 2: alpha fades are per-particle, additive blending hides pool reuse nicely.
 // Witness pass 3: ring cursor wraps deterministically; gravity/bounce constants unchanged.
+// Final polish: dead-slot park check is now a hard <= on the sentinel so a bounce that
+// briefly parks a particle at exactly y=-1000 also zeroes its colour.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -80,6 +82,7 @@ export class Particles {
         // when additive blending sampled the parked slot at grazing angles.
         if (this.pos[i * 3 + 1] > -100) {
           this.pos[i * 3 + 1] = -1000;
+          this.vel[i * 3] = 0; this.vel[i * 3 + 1] = 0; this.vel[i * 3 + 2] = 0;
           this.col[i * 3] = 0; this.col[i * 3 + 1] = 0; this.col[i * 3 + 2] = 0;
           any = true;
         }

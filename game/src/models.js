@@ -1,7 +1,9 @@
-// Vehicle factory: multi-part car meshes with real silhouettes. Bodies are extruded
-// side-profile shapes with beveled edges (rounded shoulders), cabins are separate
-// glass canopies, wheels are torus tires on spoked rims, and lights are emissive.
-// Three body styles: sedan/coupe, van, truck — no vehicle is a plain box.
+// models.js — vehicle factory: multi-part car meshes with real silhouettes. Bodies are
+// extruded side-profile shapes with beveled edges (rounded shoulders), cabins are
+// separate glass canopies, wheels are torus tires on spoked rims, and lights are
+// emissive. Three body styles: sedan/coupe, van, truck — no vehicle is a plain box.
+// Final polish: carMesh falls back to a deterministic paint roll when handed a
+// non-numeric color, instead of reaching for Math.random and breaking ?shot= replay.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -287,8 +289,11 @@ function buildTruck(paint) {
 
 // ---------------------------------------------------------------------------
 export function carMesh(color, styleHint) {
-  const idx = (typeof color === 'number') ? Math.abs(Math.floor(color)) % PAINTS.length
-    : Math.floor(Math.random() * PAINTS.length);
+  // Numeric colors index PAINTS directly; anything else rolls deterministically
+  // off the paint table length so replayed frames never drift.
+  const idx = typeof color === 'number' && Number.isFinite(color)
+    ? Math.abs(Math.floor(color)) % PAINTS.length
+    : Math.floor(PAINTS.length * 0.618) % PAINTS.length;
   const pick = PAINTS[idx];
   const roll = typeof styleHint === 'string' ? styleHint
     : (idx * 7 + 3) % 10 < 6 ? 'sedan' : (idx * 7 + 3) % 10 < 8 ? 'van' : 'truck';

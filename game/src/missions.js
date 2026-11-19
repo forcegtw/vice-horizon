@@ -5,6 +5,9 @@
 // Witness pass: mission state machine steps forward only; restart = full re-init, never rewinding steps.
 // Witness pass 2: objective markers poll at low rate; only state transitions touch HUD text.
 // Witness pass 3: reward credit stays inside the completion branch — never in the update loop.
+// Final polish: pointAtNearest tolerates a missing player ref (shot staging calls start()
+// before main.js hands over the player), and the car-delivery spawn no longer rolls an
+// unused angle.
 
 import * as THREE from '../vendor/three.min.js';
 import { MISSIONS, WORLD } from './config.js';
@@ -76,8 +79,7 @@ export class Missions {
     this.marker.visible = true;
 
     if (m.kind === 'car-delivery') {
-      // Park a glowing sports coupe on a random street corner.
-      const ang = this.rng() * Math.PI * 2;
+      // Park a glowing coupe on a random street corner; the marker points at it.
       const spot = this.randomStreetSpot();
       this.targets.push({ x: spot.x, z: spot.z, kind: 'car', done: false });
       this.marker.position.set(spot.x, 0, spot.z);
@@ -109,6 +111,12 @@ export class Missions {
   pointAtNearest() {
     const live = this.targets.filter(t => !t.done);
     if (!live.length) return;
+    // Before main.js binds the player (shot staging, smoke harness) fall back to
+    // the first live target instead of dereferencing undefined.
+    if (!this.playerRef) {
+      this.marker.position.set(live[0].x, 0, live[0].z);
+      return;
+    }
     let best = live[0], bd = Infinity;
     for (const t of live) {
       const d = (t.x - this.playerRef.x) ** 2 + (t.z - this.playerRef.z) ** 2;

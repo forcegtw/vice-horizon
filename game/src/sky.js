@@ -5,6 +5,8 @@
 // Witness pass: shader uniforms are the only live state; geometry is static after first build.
 // Witness pass 2: star twinkle rides a cheap time uniform, no per-frame geometry writes.
 // Witness pass 3: sky dome stays one draw call; dusk/night lerps unchanged.
+// Final polish: the six per-frame Color allocations in update() moved to module
+// constants — the loop runs 60x/s and this was its only steady garbage.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -83,15 +85,8 @@ export class Sky {
     // Day: blue dome, warm horizon. Dusk: orange band. Night: deep navy.
     // Polish pass 4: dusk horizon warmed further (sunset over water), night horizon
     // lifted slightly so the city silhouette still reads against the sky.
-    const dayTop = new THREE.Color(0x5b93d6);
-    const duskTop = new THREE.Color(0x2c2350);
-    const nightTop = new THREE.Color(0x0a1226);
-    const dayHor = new THREE.Color(0xd8e6f5);
-    const duskHor = new THREE.Color(0xf07a3e);
-    const nightHor = new THREE.Color(0x24304c);
-
-    const top = dayTop.clone().lerp(duskTop, Math.min(1, dusk * 1.4)).lerp(nightTop, night * 0.9);
-    const hor = dayHor.clone().lerp(duskHor, dusk).lerp(nightHor, night);
+    const top = SKY_TOP[0].clone().lerp(SKY_TOP[1], Math.min(1, dusk * 1.4)).lerp(SKY_TOP[2], night * 0.9);
+    const hor = SKY_HOR[0].clone().lerp(SKY_HOR[1], dusk).lerp(SKY_HOR[2], night);
     this.uniforms.uTop.value.copy(top);
     this.uniforms.uHorizon.value.copy(hor);
     this.uniforms.uSunDir.value.copy(sunDir);
@@ -100,3 +95,8 @@ export class Sky {
     this.uniforms.uStarAmt.value = Math.pow(night, 1.3); // stars appear earlier in dusk
   }
 }
+
+// Module-level lerp targets for update(): [day, dusk, night] per band. Allocated
+// once so the per-frame path allocates only the two clone() results.
+const SKY_TOP = [new THREE.Color(0x5b93d6), new THREE.Color(0x2c2350), new THREE.Color(0x0a1226)];
+const SKY_HOR = [new THREE.Color(0xd8e6f5), new THREE.Color(0xf07a3e), new THREE.Color(0x24304c)];

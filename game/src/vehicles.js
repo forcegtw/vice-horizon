@@ -5,6 +5,8 @@
 // Witness pass: resolveCircle ordering matters — call for the player first so traffic yields to them.
 // Witness pass 2: arcade friction constants here; realistic tire models would wreck the feel.
 // Witness pass 3: player-first resolveCircle ordering unchanged; traffic yields as designed.
+// Final polish: the runaway guard also resets wheelSpin so a teleported car doesn't
+// spin its tires at highway rate, and police despawn respects an already-removed mesh.
 
 import * as THREE from '../vendor/three.min.js';
 import { CAR, TRAFFIC, POLICE, WORLD } from './config.js';
@@ -192,6 +194,7 @@ export class Traffic {
         // Turn around instead of fighting the wall.
         c.heading += Math.PI * 0.9;
         c.speed = 2;
+        c.wheelSpin = 0; // don't keep highway spin from the pre-teleport run
       } else {
         c.x = hit.x; c.z = hit.z;
       }
@@ -281,7 +284,7 @@ export class Police {
     }
     while (this.units.length > want) {
       const u = this.units.pop();
-      this.scene.remove(u.mesh);
+      if (u?.mesh?.parent) this.scene.remove(u.mesh);
     }
   }
 

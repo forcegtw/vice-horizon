@@ -5,6 +5,8 @@
 // Design rule: the star display stays in HUD; this module owns only the numeric
 // heat and its escalation/decay timers, so save/shot staging can set wanted
 // directly without going through here.
+// Final polish: heatRatio() clamps to [0,1] so an over-banked heat value (e.g. after
+// missionHeat floors past a threshold) can't push the heat bar past full.
 
 import { POLICE } from './config.js';
 
@@ -113,12 +115,13 @@ export class Wanted {
     }
   }
 
-  // HUD: percent progress toward the next star (for a heat bar).
+  // HUD: percent progress toward the next star (for a heat bar), clamped to [0, 1].
   heatRatio() {
     const s = this.stars();
     if (s >= POLICE.maxWanted) return 1;
     const cur = s === 0 ? 0 : STAR_THRESHOLDS[s - 1];
     const next = STAR_THRESHOLDS[s];
-    return (this.heat - cur) / (next - cur);
+    const r = (this.heat - cur) / (next - cur);
+    return Math.max(0, Math.min(1, r));
   }
 }

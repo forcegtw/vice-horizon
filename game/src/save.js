@@ -5,6 +5,8 @@
 // Witness pass: SAVE_KEY contents are user-local only; bump the schema version before changing fields.
 // Witness pass 2: writes are try/caught; quota errors degrade to a silent no-save, never a crash.
 // Witness pass 3: schema-version-first rule still holds; loadSave validates money before use.
+// Final polish: non-finite money from a hand-edited save is rejected outright (a NaN
+// used to slip through the version check and poison the HUD).
 // Polish pass 4: full schema versioning — old saves without a version field are migrated
 // (v1 assumed) rather than discarded, so players keep their cash across this update.
 // Money is also range-checked and non-finite values are rejected.

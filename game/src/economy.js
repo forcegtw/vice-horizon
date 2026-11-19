@@ -1,8 +1,6 @@
 // Economy: cash, gas-station shop stops, and vehicle upgrades that persist in
-// localStorage alongside the main save. Gas stations are read from the city's
-// shop positions (city.parkSpots corners host a station prop added here), and
-// stopping inside one opens a shop menu: refill health, buy armor, buy the
-// speed or armor upgrade. Upgrades apply live via hooks the main loop reads.
+// localStorage alongside the main save. Gas stations sit on three spread street corners
+// (canopy + pump props added here), and stopping inside one opens a shop menu.
 // Design rule: Economy owns money flow and its own storage key; mission
 // rewards still credit state.money directly, and the save merge happens here.
 
@@ -34,6 +32,7 @@ export class Economy {
     this.shops = [];       // {x, z, mesh, ring}
     this.insideShop = null;
     this.menuOpen = false;
+    this._menuDirty = false;   // set after a purchase so the offer refreshes in place
     this.msg = '';
     this.msgT = 0;
 
@@ -142,6 +141,12 @@ export class Economy {
 
     if (near && !this.menuOpen) {
       this.menuOpen = true;
+      this._menuDirty = false;
+      hud.toast(this._menuText(), 30);
+    } else if (near && this.menuOpen && this._menuDirty) {
+      // Refresh the offer only after a purchase: the bought line drops out of the
+      // menu at once instead of lingering until the player leaves and returns.
+      this._menuDirty = false;
       hud.toast(this._menuText(), 30);
     } else if (!near && this.menuOpen) {
       this.menuOpen = false;
@@ -200,7 +205,7 @@ export class Economy {
       default:
         return false;
     }
-    if (ok) { sfx.cash(); this.persist(); }
+    if (ok) { sfx.cash(); this.persist(); this._menuDirty = true; }
     return true;
   }
 

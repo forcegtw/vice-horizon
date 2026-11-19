@@ -5,6 +5,8 @@
 // money flow keeps a single writer (state.money is credited in main.js).
 // All positions are snapped to the road grid via city.roadLines, matching
 // how Missions.randomStreetSpot works, so every target is reachable by car.
+// Final polish: blips() guards a race job whose route was never built, and the
+// delivery bonus is clamped so a fast haul can never pay more than +25%.
 
 import * as THREE from '../vendor/three.min.js';
 import { HALF } from './city.js';
@@ -67,6 +69,7 @@ export class SideJobs {
     if (this.state !== 'active' || !this.job) return [];
     const out = [];
     if (this.job.kind === 'race') {
+      if (!this.job.cps) return [];
       this.job.cps.forEach((c, i) => {
         if (i >= this.progress) out.push({ x: c.x, z: c.z, color: i === this.progress ? this.blipColor() : 0x3f7f9f, size: i === this.progress ? 5 : 3 });
       });
@@ -223,7 +226,8 @@ export class SideJobs {
         this.sfx.pickup();
       } else if (job.stage === 'dropoff' && d(job.tx, job.tz) < 6 && player.inCar) {
         // Bonus for delivering fast: up to +25% if over half the clock remains.
-        job.payout = Math.round(job.payout * (1 + 0.25 * Math.max(0, this.timer / job.limit - 0.5) * 2));
+        const bonus = Math.max(0, Math.min(1, this.timer / job.limit - 0.5) * 2);
+        job.payout = Math.round(job.payout * (1 + 0.25 * bonus));
         return this.pass();
       }
     } else if (job.kind === 'rampage') {

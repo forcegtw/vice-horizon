@@ -6,6 +6,9 @@
 // name via Radio.label(). All scheduling runs on the shared Sfx context.
 // Design rule: Radio owns its oscillators and never writes to the DOM — the
 // HUD readout is dirty-checked in hud.js.
+// Final polish: start() honors the mute toggle so unpausing a muted radio cannot
+// resurrect a silent scheduler, and stop() resets the lookahead clock so a long
+// pause doesn't make the next resume schedule a burst of overdue steps.
 
 const STATIONS = [
   {
@@ -73,6 +76,7 @@ export class Radio {
   start() {
     if (!this.sfx.ctx || this.timer) return;
     if (this.station().id === 'off') return;
+    if (!this.enabled) return; // muted: a resume must not start a silent scheduler
     this._ensureBus();
     this.nextTime = this.sfx.ctx.currentTime + 0.05;
     this.step = 0;
@@ -81,6 +85,9 @@ export class Radio {
 
   stop() {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    // Drop any lookahead that accumulated while stopped, so the next start()
+    // resumes at "now" instead of dumping a burst of overdue steps.
+    this.nextTime = 0;
   }
 
   // Cycle to the next station; restarts the sequencer if it changes.

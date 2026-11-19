@@ -9,6 +9,7 @@
 // Polish pass 4: the dome now carries a second horizon band and a cool ground bounce,
 // so chrome and glass pick up a visible two-tone horizon instead of a flat gradient;
 // exposure also rides setMood so night reflections dim with the world.
+// Final polish: guard the day lerp against dayAmt > 1 (clamp here, not at every caller).
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -86,15 +87,18 @@ export function buildEnvironment(renderer, scene) {
   return {
     // Re-tint the cached env when the sky changes enough to matter (cheap: uniforms only).
     setMood(dayAmt) {
-      const n = 1 - THREE.MathUtils.clamp(dayAmt, 0, 1);
+      // Clamp once at the boundary: setMood must tolerate a slightly over-unity
+      // dayAmt from callers without over-brightening the env beyond the day tint.
+      const day = THREE.MathUtils.clamp(dayAmt, 0, 1);
+      const n = 1 - day;
       uniforms.uSky.value.copy(cSky.setHex(DAY.sky).lerp(tmp.setHex(NIGHT.sky), n));
       uniforms.uHorizon.value.copy(cHor.setHex(DAY.horizon).lerp(tmp.setHex(NIGHT.horizon), n));
       uniforms.uBounce.value.copy(cBounce.setHex(DAY.bounce).lerp(tmp.setHex(NIGHT.bounce), n));
       uniforms.uGround.value.copy(cGround.setHex(DAY.ground).lerp(tmp.setHex(NIGHT.ground), n));
       // Night reflections dim with the world: chrome should not glow at 3 a.m.
       // (r160 supports scene.environmentIntensity; the sun blob inside the env also scales).
-      uniforms.uSun.value.setHex(0xfff1d0).multiplyScalar(0.35 + dayAmt * 0.65);
-      scene.environmentIntensity = 0.25 + THREE.MathUtils.clamp(dayAmt, 0, 1) * 0.75;
+      uniforms.uSun.value.setHex(0xfff1d0).multiplyScalar(0.35 + day * 0.65);
+      scene.environmentIntensity = 0.25 + day * 0.75;
     },
   };
 }

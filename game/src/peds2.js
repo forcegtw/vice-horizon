@@ -3,6 +3,9 @@
 // (peds.js), not a replacement: it reuses the existing ped records and meshes
 // and only augments the per-ped state machine, so the ped count, rig and
 // recycling stay untouched. main.js runs peds.update() then peds2.update().
+// Final polish: district density is written onto the ped (it was being written onto
+// the Peds2 instance, so per-ped density never updated after spawn) and the idle
+// sway now uses a stable per-ped lean instead of a fresh random each frame.
 
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
@@ -89,8 +92,8 @@ export class Peds2 {
     if (p.anim !== 'idle') return false;
     p.idleT -= dt;
     p.speed = IDLE_SPEED;
-    // Sway in place: tiny heading wobble, no travel intent.
-    p.heading += Math.sin(this.rng() * Math.PI) * 0.0001 + p.lean * dt * 0.4;
+    // Sway in place: tiny heading wobble from the ped's own lean bias, no travel intent.
+    p.heading += p.lean * dt * 0.4;
     if (p.idleT <= 0) {
       // Half resume strolling, half browse a bit longer.
       if (this.rng() < 0.5) {
@@ -106,7 +109,7 @@ export class Peds2 {
   update(dt, playerPos, wanted) {
     for (const p of this.peds.peds) {
       if (p.state === 'dead') continue;
-      this.density = districtDensity(p.x, p.z) || p.density;
+      p.density = districtDensity(p.x, p.z) || p.density;
 
       if (!this.tickIdle(p, dt)) {
         // hurry = brisk business walk between sprint and stroll.

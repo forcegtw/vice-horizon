@@ -5,6 +5,8 @@
 // Witness pass: preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.
 // Witness pass 2: pointer lock loss auto-pauses; input must never read stale keys after resume.
 // Witness pass 3: blur clears keys and tapped state — resume starts from a clean slate.
+// Final polish: blur also drops the pressed mouse button, so refocusing after an
+// alt-tab can't leave the weapon firing forever.
 // Polish pass 4: game actions are defined as an action->codes map so rebinding is a
 // one-liner (Input.rebind('enter', ['KeyF'])) instead of an edit inside moveAxis /
 // the loop. moveAxis and semantic helpers route through it; physical-code queries
@@ -42,7 +44,7 @@ export class Input {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => { this.keys.clear(); this.firing = false; });
+    window.addEventListener('blur', () => { this.keys.clear(); this.firing = false; this.dragging = false; });
 
     canvas.addEventListener('pointerdown', (e) => {
       this.dragging = true;

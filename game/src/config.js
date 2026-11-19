@@ -7,6 +7,8 @@
 // Witness pass: tweak gameplay feel here only; per-system magic numbers elsewhere are considered bugs.
 // Polish pass 4: camera boom lengths, FOV push and headlight thresholds were inline in
 // main.js — pulled here so a controller-user retune never touches loop code.
+// Final polish: HUD minimap sizing lives in hud.js as HUD.MINIMAP_* so the corner radar and
+// its draw code share one source of truth.
 export const WORLD = {
   blocks: 10,          // city is blocks x blocks of streets and lots
   lotSize: 84,         // metres per block cell

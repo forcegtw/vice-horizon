@@ -6,6 +6,8 @@
 // ?shot= replays stay stable.
 // Design rule: this module never mutates lights it does not own — the flash light
 // and fog are created here and only touched here.
+// Final polish: fog density lerp uses a dt-scaled factor instead of a fixed 0.02,
+// so the storm haze settles at the same rate at 30 fps and 144 fps.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -92,7 +94,7 @@ export class Weather {
 
     this._updateRain(dt, player);
     this._updateRoad();
-    this._updateFog();
+    this._updateFog(dt);
     this._updateLightning(dt);
   }
 
@@ -134,11 +136,11 @@ export class Weather {
     road.material.color.setHex(this.wetness > 0.3 ? 0x14161b : 0x1e2026);
   }
 
-  _updateFog() {
+  _updateFog(dt) {
     if (!this.scene.fog) return;
     // Storm haze: up to ~1.8x baseline density, scaled by rain intensity.
     const d = this.baseFogDensity * (1 + this.intensity * 0.8);
-    this.scene.fog.density += (d - this.scene.fog.density) * Math.min(1, 0.02);
+    this.scene.fog.density += (d - this.scene.fog.density) * Math.min(1, dt * 1.2);
   }
 
   _updateLightning(dt) {

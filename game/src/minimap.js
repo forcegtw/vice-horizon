@@ -1,8 +1,9 @@
-// minimap.js — dedicated minimap module pass: a larger, toggleable (M) canvas
+// minimap.js — dedicated minimap module: a larger, toggleable (M) canvas
 // map with roads from the city grid, player arrow, side-job blips, mission
 // markers and police blips when wanted. Owns its own canvas + HUD chip so the
 // existing Hud minimap stays untouched; Hud just calls hud.setMinimapVisible()
 // to hide its copy when this one is up. Coarse redraw timer, not per-frame.
+// Final polish: the toggle label now tracks state on both open and close.
 
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
@@ -33,14 +34,15 @@ export class Minimap {
   }
 
   toggle() {
-    this.visible = !this.visible;
-    this.el.style.display = this.visible ? 'block' : 'none';
+    this.setVisible(!this.visible);
     return this.visible;
   }
 
   setVisible(v) {
     this.visible = v;
     this.el.style.display = v ? 'block' : 'none';
+    // Label follows the state: it used to be static text that lied on reopen.
+    if (this.label) this.label.textContent = v ? 'M — hide map' : 'M — show map';
   }
 
   // Static layer: streets + block fills, north-up, whole city in frame.

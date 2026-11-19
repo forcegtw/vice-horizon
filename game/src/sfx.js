@@ -3,6 +3,9 @@
 // The context is created lazily on first user gesture, as browsers require, and
 // everything routes through one master gain so mute is a single knob.
 // Witness pass: node budget per gesture is small; long sounds must be stopped, not just faded.
+// Final polish: cash() guards against a missing context so the reward sting before
+// the first gesture is a no-op instead of a TypeError, and dispose() also clears
+// the sequencer step state.
 // Witness pass 2: master gain is the mute knob; per-sound gains stay relative to it.
 // Witness pass 3: context still created lazily on first gesture; music timer lives on Sfx.
 
@@ -43,6 +46,8 @@ export class Sfx {
   // Stop every long-lived oscillator so a paused/shot session leaves no hum behind.
   dispose() {
     if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; }
+    this._step = 0;
+    this._nextNote = 0;
     for (const n of [this._engineOsc, this._sirenOsc]) {
       try { n?.stop(); } catch { /* already stopped */ }
     }
@@ -120,8 +125,9 @@ export class Sfx {
   pickup() { this._tone(660, 0.09, 'square', 0.22); this._tone(990, 0.12, 'square', 0.18); }
 
   cash() {
+    if (!this.ctx) return;
     this._tone(880, 0.07, 'square', 0.2);
-    setTimeout(() => this._tone(1320, 0.09, 'square', 0.2), 70);
+    setTimeout(() => { if (this.ctx) this._tone(1320, 0.09, 'square', 0.2); }, 70);
   }
 
   wantedUp() { this._tone(440, 0.18, 'square', 0.25, null, 220); }

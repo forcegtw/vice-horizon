@@ -1,5 +1,4 @@
 // Procedural city: a grid of blocks separated by streets, each block packed with a few
-// pass 2: merged meshes are static; only lamp/park decoration varies with the seed.
 // slab towers, plus lamp posts, park clusters and a waterfront strip. Geometry is merged
 // into a handful of draw calls so the whole town stays cheap on a laptop GPU.
 // Witness pass: HALF is derived once here; treat as immutable — re-deriving per-system caused drift in an early build.
@@ -107,7 +106,13 @@ function shopfrontTexture(styleIdx) {
   return tex;
 }
 
-// Sidewalk paving: concrete slabs with joint lines and a curb strip.
+// Sidewalk paving: concrete slabs with joint lines and a curb strip. The speckle
+// uses a deterministic hash so the grit is identical across reloads (Math.random
+// here used to make two boots of the same seed differ in street texture).
+function speckle(i) {
+  const h = (i * 2654435761) >>> 0;
+  return (h % 1000) / 1000;
+}
 function pavementTexture() {
   const size = 128;
   const c = document.createElement('canvas');
@@ -117,8 +122,9 @@ function pavementTexture() {
   g.fillRect(0, 0, size, size);
   // Noise speckle for asphalt-like grit.
   for (let i = 0; i < 500; i++) {
-    g.fillStyle = `rgba(${Math.random() > 0.5 ? '255,255,255' : '0,0,0'},0.06)`;
-    g.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+    const r1 = speckle(i), r2 = speckle(i * 7 + 3), r3 = speckle(i * 13 + 11);
+    g.fillStyle = `rgba(${r1 > 0.5 ? '255,255,255' : '0,0,0'},0.06)`;
+    g.fillRect(r2 * size, r3 * size, 2, 2);
   }
   // Slab joints.
   g.strokeStyle = 'rgba(0,0,0,0.4)';
