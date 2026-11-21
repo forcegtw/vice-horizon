@@ -1,10 +1,13 @@
-// sky.js — an inverted sphere carrying a vertex-gradient shader: day blue dome,
-// orange dusk band, navy night, a sun/moon disc baked into the same shader (its
-// direction must match env.js's dome highlight or reflections disagree), and a
-// sprinkle of stars that fade in after dark. main.js drives the uniforms from
-// the day/night clock; after the first build, shader uniforms are the only live
-// state. Stars come from a pure hash of the direction cell, so the field is
-// fixed to the dome and twinkles with no time uniform and no per-frame CPU.
+// sky.js — the visible sky: one huge inverted sphere wearing a direction-based
+// gradient shader. Day paints a blue dome with a pale horizon; dusk drags an
+// orange band around the compass; night drops the whole thing to navy. The
+// sun/moon disc is baked into the same shader — its direction has to agree
+// with env.js's dome highlight, or reflections will visibly disagree with the
+// sky. Stars are sprinkled by a pure hash of the direction cell, so the field
+// is pinned to the dome and twinkles with no clock and no per-frame CPU.
+//
+// main.js drives the uniforms from the day/night cycle every frame; after the
+// constructor, uniform writes are the only live state in this class.
 
 import * as THREE from '../vendor/three.min.js';
 
@@ -25,6 +28,7 @@ uniform float uStarAmt;
 uniform float uHorizonPow;
 varying vec3 vDir;
 
+// Stateless 3D hash: stable per direction cell, varies smoothly across cells.
 float hash(vec3 p) {
   p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
   p *= 17.0;
@@ -39,8 +43,8 @@ void main() {
   float disc = smoothstep(uSunSize, uSunSize * 0.55, d);
   float halo = pow(max(0.0, 1.0 - d * 2.2), 3.0) * 0.35;
   col += uSunColor * (disc + halo);
-  // Sparse bright points in the upper hemisphere; twinkle comes from the cell
-  // hash itself so it needs no clock.
+  // Sparse bright points in the upper hemisphere; the twinkle comes out of
+  // the cell hash itself, so it needs no time uniform.
   if (uStarAmt > 0.01 && vDir.y > 0.05) {
     vec3 cell = floor(normalize(vDir) * 220.0);
     float s = hash(cell);
@@ -52,11 +56,9 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-// Per-band lerp targets [day, dusk, night], allocated once. The dusk bands
-// carry the strongest saturation shift (orange horizon, purple top) — that is
-// what makes the 165 s cycle read as a real sunset in screenshots.
-// Exponent shaping the horizon falloff in the fragment shader; tune with
-// env.js's dome pow exponents so sky and reflections agree.
+// Per-band lerp targets [day, dusk, night]. The dusk bands carry the strongest
+// saturation (orange horizon, purple top) — that trio is what makes the
+// 165 s cycle read as a real sunset in screenshots.
 const HORIZON_POW = 0.7;
 const TOP_BANDS = [
   new THREE.Color(0x5b93d6),  // day
@@ -72,14 +74,23 @@ const HORIZON_BANDS = [
 const SUN_DAY = 0xffdca8;
 const SUN_DUSK = 0xff9a5a;
 
+// Disc radius near sunrise/sunset vs at noon; the bigger dusk disc is what
+// makes low sun feel low. Tune together with env.js's dome exponents.
+const SUN_SIZE_BASE = 0.028;
+const SUN_SIZE_DUSK_BONUS = 0.02;
+
 export class Sky {
   constructor(scene) {
+    // Blend targets for update() — preallocated so the per-frame path
+    // allocates nothing (the main loop is allocation-free on purpose).
+    this.scratchTop = new THREE.Color();
+    this.scratchHor = new THREE.Color();
     this.uniforms = {
       uTop: { value: new THREE.Color(TOP_BANDS[0]) },
       uHorizon: { value: new THREE.Color(HORIZON_BANDS[0]) },
       uSunColor: { value: new THREE.Color(SUN_DAY) },
       uSunDir: { value: new THREE.Vector3(0.4, 0.7, 0.3) },
-      uSunSize: { value: 0.03 },
+      uSunSize: { value: SUN_SIZE_BASE },
       uStarAmt: { value: 0.0 },
       uHorizonPow: { value: HORIZON_POW },
     };
@@ -96,27 +107,28 @@ export class Sky {
     scene.add(this.mesh);
   }
 
-  // frac: 0..1 through the day; sunDir: normalized direction to the sun;
-  // dayAmt: 0..1 brightness. Pure uniform writes — no allocation per frame.
+  // frac: 0..1 through the day (unused today but part of the drive contract);
+  // sunDir: normalized sun direction; dayAmt: 0..1 brightness. Pure uniform
+  // writes — nothing is allocated per frame.
   update(frac, sunDir, dayAmt) {
-    // Recentre the 800 m shell on the play area so it never clips against the
-    // fog at the map edge. Position-only write.
+    // Recentre the 800 m shell toward the sun's azimuth so it never clips
+    // against the fog at the map edge. Position-only write.
     this.mesh.position.set(sunDir.x * 40, 0, sunDir.z * 40);
     const day = THREE.MathUtils.clamp(dayAmt, 0, 1);
     const night = 1 - day;
-    const dusk = 1 - Math.min(1, day * 1.8); // 1 near sunrise/sunset
+    const dusk = 1 - Math.min(1, day * 1.8); // peaks near sunrise/sunset
 
-    const top = TOP_BANDS[0].clone()
+    const top = this.scratchTop.copy(TOP_BANDS[0])
       .lerp(TOP_BANDS[1], Math.min(1, dusk * 1.4))
       .lerp(TOP_BANDS[2], night * 0.9);
-    const hor = HORIZON_BANDS[0].clone()
+    const hor = this.scratchHor.copy(HORIZON_BANDS[0])
       .lerp(HORIZON_BANDS[1], dusk)
       .lerp(HORIZON_BANDS[2], night);
     this.uniforms.uTop.value.copy(top);
     this.uniforms.uHorizon.value.copy(hor);
     this.uniforms.uSunDir.value.copy(sunDir);
     this.uniforms.uSunColor.value.setHex(dusk > 0.4 ? SUN_DUSK : SUN_DAY);
-    this.uniforms.uSunSize.value = 0.028 + dusk * 0.02;
+    this.uniforms.uSunSize.value = SUN_SIZE_BASE + dusk * SUN_SIZE_DUSK_BONUS;
     this.uniforms.uStarAmt.value = Math.pow(night, 1.3); // stars creep in at dusk
   }
 }

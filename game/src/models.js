@@ -1,14 +1,23 @@
-// models.js — geometry factories for vehicles and people. Car bodies are
-// extruded side-profile shapes with beveled shoulders, cabins are separate
-// glass canopies, wheels are torus tires over spoked rims, lights are emissive
-// panels. Three body styles (sedan/coupe, van, truck) so no vehicle is a bare
-// box. carMesh maps any non-numeric colour request onto a fixed paint-table
-// entry rather than Math.random, keeping ?shot= replays deterministic.
+// models.js — geometry factories for vehicles and people.
+//
+// Cars: extruded side-profile bodies with beveled shoulders, separate glass
+// canopies, torus tires over spoked rims, emissive light panels. Three body
+// styles (sedan/coupe, van, truck) so nothing on the street is a bare box.
+// carMesh maps any non-numeric colour request onto a fixed paint-table slot
+// instead of Math.random — ?shot= replays must roll the identical car.
 // Glass, tire, rim and light materials are module singletons shared by every
-// vehicle, so per-car material count stays flat no matter how busy the streets.
+// vehicle, so the per-car material count stays flat no matter how crowded
+// the streets get.
+//
+// People: small jointed rigs whose limbs pivot at the shoulder/hip, ordered
+// in userData.limbs as [legL, legR, armL, armR] — walk cycles and the ped
+// life layer pose that array directly.
 
 import * as THREE from '../vendor/three.min.js';
 
+// Paint table: colour plus metalness/roughness per finish. Index-based so
+// callers can request "paint #2" (pearl white) explicitly — the police
+// cruisers do exactly that.
 const PAINTS = Object.freeze([
   { c: 0xb0182c, m: 0.75, r: 0.32 }, // crimson
   { c: 0x1a3a6b, m: 0.85, r: 0.28 }, // deep blue
@@ -24,6 +33,7 @@ const PAINTS = Object.freeze([
   { c: 0xd6d2c4, m: 0.5, r: 0.4 },   // champagne
 ]);
 
+// Shared vehicle materials — singletons by design.
 const glassMat = new THREE.MeshPhysicalMaterial({
   color: 0x0c1420, metalness: 0.6, roughness: 0.15,
   transparent: true, opacity: 0.85, envMapIntensity: 1.6,
@@ -39,9 +49,10 @@ const taillightMat = new THREE.MeshStandardMaterial({
 });
 const plateMat = new THREE.MeshStandardMaterial({ color: 0xd9d9df, roughness: 0.5 });
 
-// Small seeded RNG for fixed outfits (mulberry32 — same shape as config.js
-// makeRng; kept local so models.js stays dependency-free).
-function seededRng(seed) {
+// Local PRNG for the player's fixed outfit (mulberry32, same canonical
+// constants as config.makeRng). Kept here so models.js stays dependency-free;
+// the seed is hard-coded, so the hero always spawns in the same clothes.
+function outfitRng(seed) {
   let a = seed >>> 0;
   return function () {
     a |= 0;
@@ -52,25 +63,26 @@ function seededRng(seed) {
   };
 }
 
-// Taper a box: vertices above mid-height pull inward (or stretch) per axis.
-// Used for limbs and torso silhouettes so people never read as boxes.
-function shapedBox(w, h, d, { topScaleX = 1, topScaleZ = 1, taperTop = 0 } = {}) {
-  const g = new THREE.BoxGeometry(w, h, d);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    if (p.getY(i) > 0) {
-      p.setX(i, p.getX(i) * topScaleX);
-      p.setZ(i, p.getZ(i) * topScaleZ);
-      if (taperTop) p.setY(i, p.getY(i) * (1 - taperTop));
+// Tapered box: vertices above mid-height pull inward (or stretch) per axis,
+// optionally compressing the top height. Limbs and torsos use it so people
+// never read as raw boxes.
+function taperedBox(w, h, d, { topScaleX = 1, topScaleZ = 1, taperTop = 0 } = {}) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) > 0) {
+      pos.setX(i, pos.getX(i) * topScaleX);
+      pos.setZ(i, pos.getZ(i) * topScaleZ);
+      if (taperTop) pos.setY(i, pos.getY(i) * (1 - taperTop));
     }
   }
-  g.computeVertexNormals();
-  return g;
+  geo.computeVertexNormals();
+  return geo;
 }
 
 // Extrude a side profile (points in forward/up plane) into a beveled solid of
-// the given width, oriented so forward is +Z and width runs along +X.
-function profileBody(profile, width, bevel = 0.1) {
+// the given width, oriented so the car faces +Z and width runs along +X.
+function extrudeProfile(profile, width, bevel = 0.1) {
   const shape = new THREE.Shape();
   shape.moveTo(profile[0][0], profile[0][1]);
   for (let i = 1; i < profile.length; i++) shape.lineTo(profile[i][0], profile[i][1]);
@@ -89,29 +101,30 @@ function profileBody(profile, width, bevel = 0.1) {
   return geo;
 }
 
-function makeWheel(radius = 0.36, width = 0.26) {
-  const g = new THREE.Group();
+// One wheel: torus tire, cylinder rim, hub, five spokes.
+function buildWheel(radius = 0.36, width = 0.26) {
+  const wheel = new THREE.Group();
   const tire = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.76, radius * 0.27, 10, 20), tireMat);
   tire.rotation.y = Math.PI / 2;
   tire.castShadow = true;
-  g.add(tire);
+  wheel.add(tire);
   const rim = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.56, radius * 0.56, width, 16), rimMat);
   rim.rotation.z = Math.PI / 2;
-  g.add(rim);
+  wheel.add(rim);
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.12, radius * 0.12, width + 0.04, 10), rimMat);
   hub.rotation.z = Math.PI / 2;
-  g.add(hub);
+  wheel.add(hub);
   for (let i = 0; i < 5; i++) {
     const spoke = new THREE.Mesh(new THREE.BoxGeometry(width + 0.02, radius, radius * 0.1), rimMat);
     spoke.rotation.x = (i / 5) * Math.PI;
-    g.add(spoke);
+    wheel.add(spoke);
   }
-  return g;
+  return wheel;
 }
 
 // Bumpers, grille, lights, mirrors, plate, exhausts, antenna — shared by all
-// body styles so each builder only owes a body shell and wheels.
-function addDetails(g, W, L, { lightY = 0.76, tallLights = false } = {}) {
+// body styles so each builder only owes a shell and wheels.
+function attachDetails(g, W, L, { lightY = 0.76, tallLights = false } = {}) {
   const front = L / 2 + 0.06;
   const rear = -L / 2 - 0.06;
   for (const [z, atRear] of [[front, false], [rear, true]]) {
@@ -149,21 +162,22 @@ function addDetails(g, W, L, { lightY = 0.76, tallLights = false } = {}) {
   antenna.rotation.z = 0.18;
   g.add(antenna);
   for (const s of [-1, 1]) {
-    const mir = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.09), trimMat);
-    mir.position.set(s * (W / 2 + 0.08), 1.16, L * 0.13);
-    g.add(mir);
+    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.09), trimMat);
+    mirror.position.set(s * (W / 2 + 0.08), 1.16, L * 0.13);
+    g.add(mirror);
   }
 }
 
-// Mount a set of wheels at [x, z] pairs, half-width pushed just outside the
-// shell so the tire ring reads from the side view.
-function mountWheels(g, pairs, radius, width) {
+// Mount wheels at [x, z] pairs; the half-width is pushed just outside the
+// shell so the tire ring reads from the side view. Returns the wheel groups
+// in mount order — Vehicle.sync spins them and steers the front pair.
+function placeWheels(g, pairs, radius, width) {
   const wheels = [];
   for (const [x, z] of pairs) {
-    const w = makeWheel(radius, width);
-    w.position.set(x, radius, z);
-    g.add(w);
-    wheels.push(w);
+    const wheel = buildWheel(radius, width);
+    wheel.position.set(x, radius, z);
+    g.add(wheel);
+    wheels.push(wheel);
   }
   return wheels;
 }
@@ -178,18 +192,18 @@ function buildSedan(paint, roofStyle = 0) {
   const g = new THREE.Group();
   const L = 4.6, W = 1.94;
 
-  const lower = new THREE.Mesh(profileBody([
+  const lower = new THREE.Mesh(extrudeProfile([
     [-L / 2, 0.62], [-L / 2 + 0.18, 0.94], [-L / 2 + 1.5, 1.0], [L / 2 - 1.7, 1.02],
     [L / 2 - 0.3, 0.92], [L / 2, 0.58], [L / 2 - 0.1, 0.3], [-L / 2 + 0.1, 0.3],
   ], W), bodyMat);
   lower.castShadow = true;
   g.add(lower);
 
-  // Glass canopy profile: fastback coupe vs notchback sedan roofline.
+  // Glass canopy profile: fastback coupe (style 1) vs notchback sedan roofline.
   const canopyProfile = roofStyle === 1
     ? [[-1.35, 0.98], [-0.85, 1.44], [0.5, 1.46], [1.05, 1.0]]
     : [[-1.5, 0.98], [-1.05, 1.42], [0.7, 1.44], [1.2, 1.0]];
-  const canopy = new THREE.Mesh(profileBody(canopyProfile, W * 0.78, 0.04), glassMat);
+  const canopy = new THREE.Mesh(extrudeProfile(canopyProfile, W * 0.78, 0.04), glassMat);
   g.add(canopy);
   const roofTop = roofStyle === 1 ? 1.46 : 1.44;
   const roof = new THREE.Mesh(new THREE.BoxGeometry(W * 0.66, 0.06, 1.35), bodyMat);
@@ -197,9 +211,9 @@ function buildSedan(paint, roofStyle = 0) {
   roof.castShadow = true;
   g.add(roof);
 
-  addDetails(g, W, L);
+  attachDetails(g, W, L);
   const wx = W / 2 + 0.02;
-  const wheels = mountWheels(g, [[-wx, 1.46], [wx, 1.46], [-wx, -1.46], [wx, -1.46]], 0.36, 0.28);
+  const wheels = placeWheels(g, [[-wx, 1.46], [wx, 1.46], [-wx, -1.46], [wx, -1.46]], 0.36, 0.28);
   return { group: g, wheels };
 }
 
@@ -210,12 +224,12 @@ function buildVan(paint) {
   const g = new THREE.Group();
   const L = 5.2, W = 2.06;
 
-  const box = new THREE.Mesh(profileBody([
+  const shell = new THREE.Mesh(extrudeProfile([
     [-L / 2, 1.9], [-L / 2 + 0.15, 2.0], [L / 2 - 1.3, 2.0], [L / 2 - 0.9, 1.3],
     [L / 2 + 0.15, 0.95], [L / 2 + 0.3, 0.42], [L / 2 + 0.15, 0.3], [-L / 2 + 0.1, 0.3],
   ], W), bodyMat);
-  box.castShadow = true;
-  g.add(box);
+  shell.castShadow = true;
+  g.add(shell);
 
   const windshield = new THREE.Mesh(new THREE.BoxGeometry(W * 0.8, 0.62, 0.08), glassMat);
   windshield.position.set(0, 1.52, L / 2 - 0.72);
@@ -226,9 +240,9 @@ function buildVan(paint) {
     side.position.set(s * W * 0.47, 1.5, L * 0.06);
     g.add(side);
   }
-  addDetails(g, W, L, { lightY: 0.78, tallLights: true });
+  attachDetails(g, W, L, { lightY: 0.78, tallLights: true });
   const wx = W / 2 + 0.02;
-  const wheels = mountWheels(g, [[-wx, 1.72], [wx, 1.72], [-wx, -1.62], [wx, -1.62]], 0.4, 0.3);
+  const wheels = placeWheels(g, [[-wx, 1.72], [wx, 1.72], [-wx, -1.62], [wx, -1.62]], 0.4, 0.3);
   return { group: g, wheels };
 }
 
@@ -239,12 +253,12 @@ function buildTruck(paint) {
   const cargoMat = new THREE.MeshStandardMaterial({ color: 0xcfd3da, metalness: 0.5, roughness: 0.55 });
   const g = new THREE.Group();
 
-  // The front bumper is centred and symmetric — one mesh outside the light loop.
+  // Front bumper is symmetric about x, so it lives outside the light loop.
   const bumper = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.22, 0.16), trimMat);
   bumper.position.set(0, 0.44, 2.86);
   g.add(bumper);
 
-  const cab = new THREE.Mesh(profileBody([
+  const cab = new THREE.Mesh(extrudeProfile([
     [1.15, 1.85], [2.15, 1.5], [2.75, 0.9], [2.8, 0.42], [2.65, 0.3], [1.1, 0.3],
   ], 2.16), cabMat);
   cab.castShadow = true;
@@ -280,15 +294,16 @@ function buildTruck(paint) {
     tl.position.set(s * 0.85, 0.95, -2.76);
     g.add(tl);
   }
-  const wheels = mountWheels(g,
+  const wheels = placeWheels(g,
     [[-1.1, 2.0], [1.1, 2.0], [-1.1, -1.2], [1.1, -1.2], [-1.1, -2.0], [1.1, -2.0]], 0.44, 0.34);
   return { group: g, wheels };
 }
 
 // ---------------------------------------------------------------------------
 export function carMesh(color, styleHint) {
-  // Numeric colours index the paint table directly; anything else lands on a
-  // fixed slot (golden-ratio offset keeps the fallback away from PAINTS[0]).
+  // Numeric colours index the paint table directly; anything else lands on
+  // slot 7 — burnt orange via golden-ratio offset — so the fallback is a
+  // stable, deliberate colour across replays rather than an accident.
   const idx = typeof color === 'number' && Number.isFinite(color)
     ? Math.abs(Math.floor(color)) % PAINTS.length
     : Math.floor(PAINTS.length * 0.618) % PAINTS.length;
@@ -317,9 +332,10 @@ function pick(rng, table) {
   return table[Math.floor(rng() * table.length)];
 }
 
-// Limb mesh pivots at the shoulder/hip so swing rotations behave.
+// A limb mesh pivots at the shoulder/hip (geometry hangs below origin) so
+// swing rotations behave.
 function limbMesh(w, len, mat) {
-  const m = new THREE.Mesh(shapedBox(w, len, w, { topScaleX: 0.8, topScaleZ: 0.8 }), mat);
+  const m = new THREE.Mesh(taperedBox(w, len, w, { topScaleX: 0.8, topScaleZ: 0.8 }), mat);
   m.geometry.translate(0, -len / 2, 0);
   m.castShadow = true;
   return m;
@@ -327,20 +343,20 @@ function limbMesh(w, len, mat) {
 
 export function pedMesh(rng) {
   const g = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: pick(rng, SKIN), roughness: 0.85 });
-  const top = new THREE.MeshStandardMaterial({ color: pick(rng, TOPS), roughness: 0.9 });
-  const pant = new THREE.MeshStandardMaterial({ color: pick(rng, PANTS), roughness: 0.95 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: pick(rng, SKIN), roughness: 0.85 });
+  const topMat = new THREE.MeshStandardMaterial({ color: pick(rng, TOPS), roughness: 0.9 });
+  const pantMat = new THREE.MeshStandardMaterial({ color: pick(rng, PANTS), roughness: 0.95 });
 
-  const torso = new THREE.Mesh(shapedBox(0.46, 0.6, 0.26, { topScaleX: 0.85, topScaleZ: 0.85 }), top);
+  const torso = new THREE.Mesh(taperedBox(0.46, 0.6, 0.26, { topScaleX: 0.85, topScaleZ: 0.85 }), topMat);
   torso.position.y = 1.14;
   torso.castShadow = true;
   g.add(torso);
 
-  const hips = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.26), pant);
+  const hips = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.26), pantMat);
   hips.position.y = 0.78;
   g.add(hips);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), skin);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), skinMat);
   head.position.y = 1.62;
   head.scale.y = 1.15;
   head.castShadow = true;
@@ -353,19 +369,21 @@ export function pedMesh(rng) {
   hair.position.y = 1.65;
   g.add(hair);
 
-  const armL = limbMesh(0.13, 0.58, top); armL.position.set(-0.3, 1.4, 0);
-  const armR = limbMesh(0.13, 0.58, top); armR.position.set(0.3, 1.4, 0);
-  const legL = limbMesh(0.16, 0.72, pant); legL.position.set(-0.12, 0.76, 0);
-  const legR = limbMesh(0.16, 0.72, pant); legR.position.set(0.12, 0.76, 0);
+  const armL = limbMesh(0.13, 0.58, topMat); armL.position.set(-0.3, 1.4, 0);
+  const armR = limbMesh(0.13, 0.58, topMat); armR.position.set(0.3, 1.4, 0);
+  const legL = limbMesh(0.16, 0.72, pantMat); legL.position.set(-0.12, 0.76, 0);
+  const legR = limbMesh(0.16, 0.72, pantMat); legR.position.set(0.12, 0.76, 0);
   g.add(armL, armR, legL, legR);
 
+  // Walk-cycle consumers (peds.js / peds2.js) index this exact order:
+  // legs first, then arms.
   g.userData.limbs = [legL, legR, armL, armR];
   return g;
 }
 
 // Player rig: a ped with a fixed outfit (seeded) plus a held pistol.
 export function playerMesh() {
-  const g = pedMesh(seededRng(7));
+  const g = pedMesh(outfitRng(7));
   const gunMat = new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.45, metalness: 0.8 });
   const gun = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.3), gunMat);

@@ -1,26 +1,34 @@
 // vehicles.js — the Vehicle entity, arcade driving physics, traffic AI and
-// police pursuit. No physics engine: everything is kinematic integration against
-// the city's AABB colliders via resolveCircle (shared with peds and the camera,
-// so cars, people and the boom all agree on geometry). Tuning lives in config;
-// friction constants here are deliberate — real tire models would kill the feel.
+// police pursuit.
+//
+// No physics engine: everything is kinematic integration against the city's
+// AABB colliders through resolveCircle — the same push-out helper the peds
+// and the camera boom use, so cars, people and the camera all agree on
+// geometry. Tuning lives in config.js; the friction model here is a
+// deliberate arcade cheat — a real tire model would kill the drift feel.
+//
+// Determinism: traffic paint and spawn placement draw from the seeded rng,
+// and Vehicle.colorIndex is derived from the spawn transform, never
+// Math.random — the ?shot= replay and smoke harnesses need identical cars
+// for a given seed.
 
 import * as THREE from '../vendor/three.min.js';
 import { CAR, TRAFFIC, POLICE } from './config.js';
 import { carMesh } from './models.js';
 import { HALF } from './city.js';
 
-// Traffic paints biased bright so cars pop against asphalt; obsidian skipped.
+// Traffic paints biased bright so cars pop against the asphalt; obsidian is
+// skipped for spawned traffic (but stays in the table for explicit paints).
 const CAR_COLORS = Object.freeze([0xb0182c, 0x1a3a6b, 0xe8e8ea, 0x101318, 0x8f9299, 0xc9a227, 0x2c6e49, 0xd4581f]);
 const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318);
 
-const WANDER_GRACE = 30;    // metres beyond HALF a car may swing wide before recall
-const PROBE = 9;            // lookahead distance for traffic braking
-const POLICE_CAP = 10;      // hard ceiling on simultaneous cruisers
-// Lane offset from the centre line: keeps opposing traffic on opposite sides.
-const LANE_OFFSET = 3.4;
+const WANDER_GRACE = 30;   // metres past HALF a car may swing wide before recall
+const PROBE = 9;           // lookahead distance for traffic braking
+const POLICE_CAP = 10;     // hard ceiling on simultaneous cruisers
+const LANE_OFFSET = 3.4;   // keeps opposing lanes on opposite sides of the line
 
 // ---------------------------------------------------------------------------
-// Vehicle entity shared by the player, traffic and police.
+// Vehicle — shared by the player, traffic and police
 // ---------------------------------------------------------------------------
 export class Vehicle {
   constructor(mesh, x, z, heading, kind) {
@@ -39,15 +47,14 @@ export class Vehicle {
     this.targetLane = null;
     this.onCrash = null;
     this.onExplode = null;
-    // Paint index derives from the spawn transform, never Math.random — the
-    // ?shot= replay and smoke harnesses need identical cars for a given seed.
+    // Paint index derives from the spawn transform so replays are stable.
     this.colorIndex = (Math.abs(Math.round(x * 7 + z * 13)) + Math.round(heading * 5)) % CAR_COLORS.length;
   }
 
   forwardX() { return Math.sin(this.heading); }
   forwardZ() { return Math.cos(this.heading); }
 
-  // One integration step with throttle in [-1, 1], steering in [-1, 1].
+  // One integration step. throttle in [-1, 1], steering in [-1, 1].
   // maxScale lets the engine-tune upgrade raise the forward cap without
   // touching the tuned config constants.
   drive(throttle, steerInput, dt, solids, maxScale = 1) {
@@ -133,8 +140,12 @@ export function resolveCircle(x, z, r, solids) {
   return { x, z, blocked };
 }
 
-// Place a car on a lane: the LANE_OFFSET puts it in the correct side of the
-// road for its travel direction.
+// ---------------------------------------------------------------------------
+// Lane helpers
+// ---------------------------------------------------------------------------
+
+// Place a car on a lane: the offset puts it on the correct side of the road
+// for its travel direction.
 function lanePlacement(lane, along, dir) {
   if (lane.axis === 'z') {
     return { x: lane.line + dir * LANE_OFFSET, z: along, heading: dir > 0 ? 0 : Math.PI };
@@ -205,7 +216,7 @@ export class Traffic {
       else c.speed = Math.min(TRAFFIC.carSpeed, c.speed + 6 * dt);
 
       // Integrate, then recall any car that hit a wall or wandered past the
-      // map edge grace band: it turns around on the spot with fresh wheels.
+      // map-edge grace band: it turns around on the spot with fresh wheels.
       const nx = c.x + fx * c.speed * dt;
       const nz = c.z + fz * c.speed * dt;
       const hit = resolveCircle(nx, nz, CAR.radius, solids);
@@ -311,6 +322,8 @@ export class Police {
 
   count() { return this.units.length; }
 
+  // onBust is reserved for an arrest flow that never wired up — kept in the
+  // signature so call sites stay stable across the pipeline.
   update(dt, player, state, solids, rng, damagePlayer, onBust) {
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];

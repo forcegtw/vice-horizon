@@ -1,28 +1,39 @@
 // particles.js — one pooled THREE.Points system shared by explosions, sparks
-// and dust. Each burst claims a slice of a ring buffer and animates position,
-// velocity and alpha per frame; dead slots are reclaimed, so a long firefight
-// never grows the pool. Pool size 600 is the hard ceiling — bursts past it
-// silently reuse the oldest slots. Additive blending plus per-particle colour
-// fades hide that reuse. Dead slots park far below the map AND zero their
-// colour: a position-only park used to leave a bright pixel floating in
-// reflections when additive blending sampled a parked slot at grazing angles.
+// and dust.
+//
+// Each burst claims a slice of a ring buffer and animates position, velocity
+// and alpha per frame; dead slots are reclaimed, so a long firefight never
+// grows the pool. POOL is the hard ceiling — bursts past it silently reuse
+// the oldest slots, and additive blending plus per-particle colour fades hide
+// that reuse.
+//
+// Dead slots park far below the map AND zero their colour. A position-only
+// park used to leave a bright pixel floating in reflections when additive
+// blending sampled a parked slot at grazing angles — zeroing the colour is
+// the fix, so keep the pair together.
+//
+// Bursts draw from Math.random on purpose: spawn scatter is throwaway visual
+// noise, and keeping it outside the seeded rng leaves ?shot= replays exact.
 
 import * as THREE from '../vendor/three.min.js';
 
-const POOL = 600;        // hard ceiling — bursts past it reuse the oldest slots
-const PARK_Y = -1000;    // dead-slot parking depth, far below the play area
+const POOL = 600;         // hard ceiling — bursts past it reuse the oldest slots
+const PARK_Y = -1000;     // dead-slot parking depth, far below the play area
 const GRAVITY = 9.8;
 const FLOOR_BOUNCE = 0.3;
-// Slot-identifies-as-parked test: anything within PARK_Y/10 of PARK_Y is asleep.
+// Slot-identifies-as-parked test: anything within PARK_Y/10 of PARK_Y sleeps.
 const PARK_TEST_Y = PARK_Y / 10;
+const REST_HEIGHT = 0.1;  // particles rest just above the road surface
 
 export class Particles {
   constructor(scene) {
     this.pos = new Float32Array(POOL * 3);
     this.col = new Float32Array(POOL * 3);
     this.vel = new Float32Array(POOL * 3);
-    this.life = new Float32Array(POOL);     // seconds remaining
+    this.life = new Float32Array(POOL);     // seconds remaining per slot
     this.maxLife = new Float32Array(POOL);
+    // Per-slot size is tracked for a future per-particle-size shader; the
+    // shared PointsMaterial ignores it today.
     this.size = new Float32Array(POOL);
     this.cursor = 0;                        // next slot a burst claims
     this.alive = 0;
@@ -45,7 +56,7 @@ export class Particles {
   }
 
   // Spawn `count` particles at a point with a colour and radial velocity.
-  // life/size get mild random spread so bursts look organic.
+  // Life and size get a mild random spread so bursts look organic.
   burst(x, y, z, count, color, speed, life = 0.9, size = 1.4) {
     const base = new THREE.Color(color);
     for (let n = 0; n < count; n++) {
@@ -90,7 +101,7 @@ export class Particles {
     let dirty = false;
     for (let i = 0; i < POOL; i++) {
       if (this.life[i] <= 0) {
-        // Park once, then leave it alone (dirty flag would otherwise churn).
+        // Park once, then leave it alone (a dirty flag per frame would churn).
         if (this.pos[i * 3 + 1] > PARK_TEST_Y) {
           this.pos[i * 3 + 1] = PARK_Y;
           this.vel[i * 3] = 0;
@@ -109,9 +120,9 @@ export class Particles {
       this.pos[i * 3] += this.vel[i * 3] * dt;
       this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
       this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
-      if (this.pos[i * 3 + 1] < 0.1) {
+      if (this.pos[i * 3 + 1] < REST_HEIGHT) {
         this.vel[i * 3 + 1] *= -FLOOR_BOUNCE;
-        this.pos[i * 3 + 1] = 0.1;
+        this.pos[i * 3 + 1] = REST_HEIGHT;
       }
     }
     if (dirty) {
