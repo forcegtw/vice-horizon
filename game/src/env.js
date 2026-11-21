@@ -1,114 +1,113 @@
-// Procedural environment map. MeshStandardMaterial needs something to reflect or
-// metal reads as flat black; we render a small gradient dome (sky, horizon, ground,
-// one sun blob) into a PMREM once at boot and hand it to the scene. Cheap enough
-// that it costs one offscreen render at startup and nothing per frame.
-// Env intensity rides the day/night uniform — no second PMREM pass needed;
-// setMood lerps only uniforms, the cached PMREM target is never rebuilt.
-// The dome carries a second horizon band and a cool ground bounce, so chrome and
-// glass pick up a visible two-tone horizon instead of a flat gradient; exposure
-// also rides setMood so night reflections dim with the world.
-// The 220.0 / 8.0 exponents in the fragment shader shape the sun blob: the tight
-// lobe is the disc, the wide one the halo — tune together with sky.js's uSunSize.
+// Environment reflections. MeshStandardMaterial has nothing to reflect unless the
+// scene carries an environment map — metal and glass would render flat black — so
+// at boot we rasterize a tiny gradient dome (sky, horizon band, warm sun blob,
+// cool ground bounce) into a PMREM and hand the baked texture to the scene.
+// Cost profile: one offscreen render at startup, nothing per frame. setMood only
+// rewrites shader uniforms plus scene.environmentIntensity; the cached PMREM
+// target is never rebuilt, so dusk just dims the same reflections.
+// The dome paints a second horizon band and a cool ground bounce, so chrome and
+// glass pick up a visible two-tone horizon instead of one flat gradient.
+// The 220.0 / 8.0 fragment exponents shape the sun blob: the tight lobe is the
+// disc, the wide one the halo — retune them together with sky.js's uSunSize.
 
 import * as THREE from '../vendor/three.min.js';
 
-const ENV_VERT = `
-varying vec3 vDir;
+const DOME_VERT = `
+varying vec3 vRay;
 void main() {
-  vDir = normalize(position);
+  vRay = normalize(position);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
-const ENV_FRAG = `
+const DOME_FRAG = `
 uniform vec3 uSky;
 uniform vec3 uHorizon;
-uniform vec3 uGround;
 uniform vec3 uBounce;
+uniform vec3 uGround;
 uniform vec3 uSun;
 uniform vec3 uSunDir;
-varying vec3 vDir;
+varying vec3 vRay;
 void main() {
-  vec3 d = normalize(vDir);
-  float up = clamp(d.y, -1.0, 1.0);
-  vec3 col = mix(uHorizon, uSky, pow(clamp(up, 0.0, 1.0), 0.55));
-  // Two-tone horizon: a warm sliver just under y=0, then the ground bounce below it.
-  col = mix(col, uBounce, smoothstep(0.02, -0.12, up));
-  col = mix(col, uGround, smoothstep(-0.08, -0.45, up));
-  float sun = pow(max(0.0, dot(d, normalize(uSunDir))), 220.0);
-  float halo = pow(max(0.0, dot(d, normalize(uSunDir))), 8.0) * 0.35;
-  col += uSun * (sun * 3.0 + halo);
-  gl_FragColor = vec4(col, 1.0);
+  vec3 dir = normalize(vRay);
+  float height = clamp(dir.y, -1.0, 1.0);
+  vec3 rgb = mix(uHorizon, uSky, pow(clamp(height, 0.0, 1.0), 0.55));
+  // Two-tone horizon: a warm sliver just under y=0, then the ground bounce below.
+  rgb = mix(rgb, uBounce, smoothstep(0.02, -0.12, height));
+  rgb = mix(rgb, uGround, smoothstep(-0.08, -0.45, height));
+  float disc = pow(max(0.0, dot(dir, normalize(uSunDir))), 220.0);
+  float glow = pow(max(0.0, dot(dir, normalize(uSunDir))), 8.0) * 0.35;
+  rgb += uSun * (disc * 3.0 + glow);
+  gl_FragColor = vec4(rgb, 1.0);
 }`;
 
-// Colours the env is re-tinted from. Kept module-level so setMood does no allocation:
-// lerp targets are created once and reused every frame the sky changes.
-// Values are hex triples [sky, horizon, bounce, ground]; DAY/NIGHT are the lerp ends.
-const DAY = {
+// Palettes the dome is re-tinted from each mood change. Hex triples are
+// [sky, horizon, bounce, ground]; DAY and NIGHT are the lerp endpoints.
+const DAY_TINT = {
   sky: 0x8fb4e8, horizon: 0xd9e3f2, bounce: 0x6b7386, ground: 0x2a2c33,
 };
-const NIGHT = {
+const NIGHT_TINT = {
   sky: 0x0a1020, horizon: 0x1a2338, bounce: 0x121a2a, ground: 0x05070c,
 };
 
-// Reflection strength floors: night keeps a quarter intensity so chrome never
-// reads as flat black against the lit street.
-const ENV_DAY_FLOOR = 0.25;
-const ENV_NIGHT_SCALE = 0.75;
+// Reflection-strength envelope: night keeps a quarter intensity so chrome never
+// reads as dead black against the lit street, day tops out at the full map.
+const REFLECT_FLOOR = 0.25;
+const REFLECT_NIGHT_DIM = 0.35;   // multiplier the baked sun blob keeps at midnight
+const REFLECT_DAY_GAIN = 0.65;    // plus this share of full strength per dayAmt
+const REFLECT_DAY_SPAN = 0.75;    // added to the floor across the day ramp
+const SUN_TINT = 0xfff1d0;        // one warm white for the baked blob, day and night
+
+// Shared lerp target: setHex overwrites it completely, so reusing one Color for
+// every channel lerp is allocation-free and safe.
+const lerpTarget = new THREE.Color();
 
 export function buildEnvironment(renderer, scene) {
-  const envScene = new THREE.Scene();
   const uniforms = {
-    uSky: { value: new THREE.Color(DAY.sky) },
-    uHorizon: { value: new THREE.Color(DAY.horizon) },
-    uBounce: { value: new THREE.Color(DAY.bounce) },
-    uGround: { value: new THREE.Color(DAY.ground) },
-    uSun: { value: new THREE.Color(0xfff1d0) },
+    uSky: { value: new THREE.Color(DAY_TINT.sky) },
+    uHorizon: { value: new THREE.Color(DAY_TINT.horizon) },
+    uBounce: { value: new THREE.Color(DAY_TINT.bounce) },
+    uGround: { value: new THREE.Color(DAY_TINT.ground) },
+    uSun: { value: new THREE.Color(SUN_TINT) },
     uSunDir: { value: new THREE.Vector3(0.45, 0.62, 0.35) },
   };
-  const mat = new THREE.ShaderMaterial({
-    vertexShader: ENV_VERT,
-    fragmentShader: ENV_FRAG,
+  const domeMat = new THREE.ShaderMaterial({
+    vertexShader: DOME_VERT,
+    fragmentShader: DOME_FRAG,
     uniforms,
     side: THREE.BackSide,
     depthWrite: false,
   });
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(40, 32, 20), mat);
-  envScene.add(dome);
+  const domeScene = new THREE.Scene();
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(40, 32, 20), domeMat);
+  domeScene.add(dome);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   pmrem.compileEquirectangularShader();
-  const target = pmrem.fromScene(envScene, 0.02, 0.1, 200);
-  scene.environment = target.texture;
+  const baked = pmrem.fromScene(domeScene, 0.02, 0.1, 200);
+  scene.environment = baked.texture;
   pmrem.dispose();
   dome.geometry.dispose();
-  mat.dispose();
+  domeMat.dispose();
 
-  // Scratch colours for the lerp: allocated once, mutated in place.
-  const cSky = new THREE.Color();
-  const cHor = new THREE.Color();
-  const cBounce = new THREE.Color();
-  const cGround = new THREE.Color();
+  // Scratch colours mutated in place — the per-frame lerp path never allocates.
+  const outSky = new THREE.Color();
+  const outHorizon = new THREE.Color();
+  const outBounce = new THREE.Color();
+  const outGround = new THREE.Color();
 
   return {
-    // Re-tint the cached env when the sky changes enough to matter (cheap: uniforms only).
+    // Re-tint the cached env as the clock moves. Callers may hand in a slightly
+    // over-unity dayAmt; clamping here keeps the env from over-brightening.
     setMood(dayAmt) {
-      // Clamp once at the boundary: setMood must tolerate a slightly over-unity
-      // dayAmt from callers without over-brightening the env beyond the day tint.
       const day = THREE.MathUtils.clamp(dayAmt, 0, 1);
-      const n = 1 - day;
-      uniforms.uSky.value.copy(cSky.setHex(DAY.sky).lerp(tmp.setHex(NIGHT.sky), n));
-      uniforms.uHorizon.value.copy(cHor.setHex(DAY.horizon).lerp(tmp.setHex(NIGHT.horizon), n));
-      uniforms.uBounce.value.copy(cBounce.setHex(DAY.bounce).lerp(tmp.setHex(NIGHT.bounce), n));
-      uniforms.uGround.value.copy(cGround.setHex(DAY.ground).lerp(tmp.setHex(NIGHT.ground), n));
-      // Night reflections dim with the world: chrome should not glow at 3 a.m.
-      // (r160 supports scene.environmentIntensity; the sun blob inside the env also scales).
-      uniforms.uSun.value.setHex(0xfff1d0).multiplyScalar(0.35 + day * 0.65);
-      scene.environmentIntensity = ENV_DAY_FLOOR + day * ENV_NIGHT_SCALE;
-      // tmp is intentionally declared at module scope (see the const below) so
-      // this per-frame lerp path allocates nothing.
+      const night = 1 - day;
+      uniforms.uSky.value.copy(outSky.setHex(DAY_TINT.sky).lerp(lerpTarget.setHex(NIGHT_TINT.sky), night));
+      uniforms.uHorizon.value.copy(outHorizon.setHex(DAY_TINT.horizon).lerp(lerpTarget.setHex(NIGHT_TINT.horizon), night));
+      uniforms.uBounce.value.copy(outBounce.setHex(DAY_TINT.bounce).lerp(lerpTarget.setHex(NIGHT_TINT.bounce), night));
+      uniforms.uGround.value.copy(outGround.setHex(DAY_TINT.ground).lerp(lerpTarget.setHex(NIGHT_TINT.ground), night));
+      // The baked sun blob dims with the world — chrome should not glow at 3 a.m.
+      uniforms.uSun.value.setHex(SUN_TINT).multiplyScalar(REFLECT_NIGHT_DIM + day * REFLECT_DAY_GAIN);
+      scene.environmentIntensity = REFLECT_FLOOR + day * REFLECT_DAY_SPAN;
     },
   };
 }
-
-// Single reusable lerp target: setHex clears it first, so reusing it is safe.
-const tmp = new THREE.Color();

@@ -1,54 +1,59 @@
-// Sky: a big inverted sphere with a vertex-gradient shader, a sun disc glow baked
-// into the same shader (its direction must match env.js's dome highlight or
-// reflections disagree), and a sprinkle of stars that fade in at night.
-// Uniforms are driven by the day/night clock in main.js, so one draw call covers
-// dusk to dark; shader uniforms are the only live state after the first build.
-// Stars use a pure hash of the direction cell, so the field is fixed to the
-// dome and twinkles without a time uniform — no per-frame CPU cost at all.
+// Sky dome: a single inverted sphere carrying a vertex-gradient shader — blue
+// day bands, an orange dusk horizon, deep navy night — plus a sun/moon disc with
+// halo and a star field that fades in after dusk. main.js drives the uniforms
+// from the day clock; once built, the dome is pure GPU state and costs exactly
+// one draw call per frame.
+// Star positions come from hashing the view-direction cell, so the field is
+// painted onto the dome itself: twinkling needs no time uniform and no per-frame
+// CPU work at all.
+// uSunDir must agree with env.js's dome highlight, or reflections and the visible
+// disc will point at different suns.
 
 import * as THREE from '../vendor/three.min.js';
 
-const VERT = `
-varying vec3 vDir;
+const DOME_RADIUS = 800;   // shell size; must dwarf the fog range at the map rim
+
+const DOME_VERT = `
+varying vec3 vRay;
 void main() {
-  vDir = normalize(position);
+  vRay = normalize(position);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
-const FRAG = `
+const DOME_FRAG = `
 uniform vec3 uTop;
 uniform vec3 uHorizon;
 uniform vec3 uSunColor;
 uniform vec3 uSunDir;
 uniform float uSunSize;
 uniform float uStarAmt;
-varying vec3 vDir;
+varying vec3 vRay;
 
-float hash(vec3 p) {
-  p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+float hash(vec3 cell) {
+  cell = fract(cell * 0.3183099 + vec3(0.71, 0.113, 0.419));
+  cell *= 17.0;
+  return fract(cell.x * cell.y * cell.z * (cell.x + cell.y + cell.z));
 }
 
 void main() {
-  float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
-  vec3 col = mix(uHorizon, uTop, pow(h, 0.7));
-  // Sun / moon disc with soft halo.
-  float d = distance(normalize(vDir), normalize(uSunDir));
-  float disc = smoothstep(uSunSize, uSunSize * 0.55, d);
-  float halo = pow(max(0.0, 1.0 - d * 2.2), 3.0) * 0.35;
-  col += uSunColor * (disc + halo);
-  // Stars: sparse bright points in the upper hemisphere.
-  if (uStarAmt > 0.01 && vDir.y > 0.05) {
-    vec3 cell = floor(normalize(vDir) * 220.0);
-    float s = hash(cell);
-    if (s > 0.9975) {
-      // Twinkle from the cell hash itself: deterministic, no time uniform needed.
-      float tw = 0.6 + 0.4 * sin(s * 90.0);
-      col += vec3(0.9, 0.95, 1.0) * uStarAmt * tw * smoothstep(0.05, 0.3, vDir.y);
+  float shade = clamp(vRay.y * 0.5 + 0.5, 0.0, 1.0);
+  vec3 rgb = mix(uHorizon, uTop, pow(shade, 0.7));
+  // Sun / moon disc with a soft halo around it.
+  float angDist = distance(normalize(vRay), normalize(uSunDir));
+  float disc = smoothstep(uSunSize, uSunSize * 0.55, angDist);
+  float halo = pow(max(0.0, 1.0 - angDist * 2.2), 3.0) * 0.35;
+  rgb += uSunColor * (disc + halo);
+  // Stars: sparse bright points, upper hemisphere only.
+  if (uStarAmt > 0.01 && vRay.y > 0.05) {
+    vec3 starCell = floor(normalize(vRay) * 220.0);
+    float roll = hash(starCell);
+    if (roll > 0.9975) {
+      // Twinkle derived from the cell hash itself: deterministic, time-free.
+      float twinkle = 0.6 + 0.4 * sin(roll * 90.0);
+      rgb += vec3(0.9, 0.95, 1.0) * uStarAmt * twinkle * smoothstep(0.05, 0.3, vRay.y);
     }
   }
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(rgb, 1.0);
 }`;
 
 export class Sky {
@@ -61,45 +66,44 @@ export class Sky {
       uSunSize: { value: 0.03 },
       uStarAmt: { value: 0.0 },
     };
-    const mat = new THREE.ShaderMaterial({
-      vertexShader: VERT,
-      fragmentShader: FRAG,
+    const domeMat = new THREE.ShaderMaterial({
+      vertexShader: DOME_VERT,
+      fragmentShader: DOME_FRAG,
       uniforms: this.uniforms,
       side: THREE.BackSide,
       depthWrite: false,
       fog: false,
     });
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(800, 32, 20), mat);
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(DOME_RADIUS, 32, 20), domeMat);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
   }
 
-  // frac: 0..1 through the day; sunDir: normalized direction to the sun; dayAmt 0..1.
+  // frac: 0..1 position through the day (kept in the signature for callers that
+  // pass the whole clock readout; the dome currently derives everything from the
+  // sun vector and dayAmt). sunDir: normalized sun direction. dayAmt: 0..1.
   update(frac, sunDir, dayAmt) {
-    this.mesh.position.set(sunDir.x * 40, 0, sunDir.z * 40); // recentre on play area cheaply
+    // Recentre the shell on the sun's ground track so the 800 m dome never clips
+    // into the fog at the map edge — a pure position write, no allocation.
+    this.mesh.position.set(sunDir.x * 40, 0, sunDir.z * 40);
     const day = THREE.MathUtils.clamp(dayAmt, 0, 1);
-    const dusk = 1 - Math.min(1, day * 1.8);                 // 1 near sunrise/sunset
+    const dusk = 1 - Math.min(1, day * 1.8);   // peaks near sunrise / sunset
     const night = 1 - day;
 
-    // Day: blue dome, warm horizon. Dusk: orange band. Night: deep navy.
-    // Polish pass 4: dusk horizon warmed further (sunset over water), night horizon
-    // lifted slightly so the city silhouette still reads against the sky.
-    const top = SKY_TOP[0].clone().lerp(SKY_TOP[1], Math.min(1, dusk * 1.4)).lerp(SKY_TOP[2], night * 0.9);
-    const hor = SKY_HOR[0].clone().lerp(SKY_HOR[1], dusk).lerp(SKY_HOR[2], night);
-    this.uniforms.uTop.value.copy(top);
-    this.uniforms.uHorizon.value.copy(hor);
+    // Day: blue dome, warm horizon. Dusk: orange band, purple creeping into the
+    // top. Night: deep navy, horizon lifted a touch so the city silhouette still
+    // reads against the sky.
+    this.uniforms.uTop.value.copy(SKY_TOP[0]).lerp(SKY_TOP[1], Math.min(1, dusk * 1.4)).lerp(SKY_TOP[2], night * 0.9);
+    this.uniforms.uHorizon.value.copy(SKY_HOR[0]).lerp(SKY_HOR[1], dusk).lerp(SKY_HOR[2], night);
     this.uniforms.uSunDir.value.copy(sunDir);
     this.uniforms.uSunColor.value.setHex(dusk > 0.4 ? 0xff9a5a : 0xffdca8);
     this.uniforms.uSunSize.value = 0.028 + dusk * 0.02;
-    this.uniforms.uStarAmt.value = Math.pow(night, 1.3); // stars appear earlier in dusk
-    // The dome recentres on the play area each frame so the 800 m shell never
-    // clips against the fog at the map edge — pure position write, no alloc.
+    this.uniforms.uStarAmt.value = Math.pow(night, 1.3); // stars arrive mid-dusk
   }
 }
 
-// Module-level lerp targets for update(): [day, dusk, night] per band. Allocated
-// once so the per-frame path allocates only the two clone() results.
-// Dusk bands carry the strongest saturation change (orange horizon, purple top):
-// those two are what make the 165 s cycle read as a real sunset in screenshots.
+// Lerp endpoints for update(): [day, dusk, night] per band. The dusk bands carry
+// the strongest saturation swing (orange horizon, purple top) — that pair is what
+// makes the 165 s cycle read as a real sunset in screenshots.
 const SKY_TOP = [new THREE.Color(0x5b93d6), new THREE.Color(0x2c2350), new THREE.Color(0x0a1226)];
 const SKY_HOR = [new THREE.Color(0xd8e6f5), new THREE.Color(0xf07a3e), new THREE.Color(0x24304c)];
