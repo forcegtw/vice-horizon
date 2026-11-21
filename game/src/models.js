@@ -1,6 +1,6 @@
 // models.js — geometry factories for vehicles and people.
 //
-// Cars: extruded side-profile bodies with beveled shoulders, separate glass
+// Cars: extruded side-profile shells with beveled shoulders, separate glass
 // canopies, torus tires over spoked rims, emissive light panels. Three body
 // styles (sedan/coupe, van, truck) so nothing on the street is a bare box.
 // carMesh maps any non-numeric colour request onto a fixed paint-table slot
@@ -16,8 +16,8 @@
 import * as THREE from '../vendor/three.min.js';
 
 // Paint table: colour plus metalness/roughness per finish. Index-based so
-// callers can request "paint #2" (pearl white) explicitly — the police
-// cruisers do exactly that.
+// callers can request "paint #2" explicitly — the police cruisers do exactly
+// that, which is why slot 2 stays a pale base the livery can sit on top of.
 const PAINTS = Object.freeze([
   { c: 0xb0182c, m: 0.75, r: 0.32 }, // crimson
   { c: 0x1a3a6b, m: 0.85, r: 0.28 }, // deep blue
@@ -32,6 +32,11 @@ const PAINTS = Object.freeze([
   { c: 0x7a3020, m: 0.65, r: 0.35 }, // maroon
   { c: 0xd6d2c4, m: 0.5, r: 0.4 },   // champagne
 ]);
+
+// Golden-ratio offset for the fallback paint slot: lands far from the low
+// indices that explicit callers (traffic, police) use, so a colourless
+// request still reads as a deliberate, stable choice across replays.
+const PAINT_GOLDEN = 0.618;
 
 // Shared vehicle materials — singletons by design.
 const glassMat = new THREE.MeshPhysicalMaterial({
@@ -80,8 +85,8 @@ function taperedBox(w, h, d, { topScaleX = 1, topScaleZ = 1, taperTop = 0 } = {}
   return geo;
 }
 
-// Extrude a side profile (points in forward/up plane) into a beveled solid of
-// the given width, oriented so the car faces +Z and width runs along +X.
+// Extrude a side profile (points in forward/up plane) into a beveled solid
+// of the given width, oriented so the car faces +Z and width runs along +X.
 function extrudeProfile(profile, width, bevel = 0.1) {
   const shape = new THREE.Shape();
   shape.moveTo(profile[0][0], profile[0][1]);
@@ -170,7 +175,8 @@ function attachDetails(g, W, L, { lightY = 0.76, tallLights = false } = {}) {
 
 // Mount wheels at [x, z] pairs; the half-width is pushed just outside the
 // shell so the tire ring reads from the side view. Returns the wheel groups
-// in mount order — Vehicle.sync spins them and steers the front pair.
+// in mount order — Vehicle.sync spins them all and steers the first pair,
+// so the front axle must be listed first.
 function placeWheels(g, pairs, radius, width) {
   const wheels = [];
   for (const [x, z] of pairs) {
@@ -306,7 +312,7 @@ export function carMesh(color, styleHint) {
   // stable, deliberate colour across replays rather than an accident.
   const idx = typeof color === 'number' && Number.isFinite(color)
     ? Math.abs(Math.floor(color)) % PAINTS.length
-    : Math.floor(PAINTS.length * 0.618) % PAINTS.length;
+    : Math.floor(PAINTS.length * PAINT_GOLDEN) % PAINTS.length;
   const paint = PAINTS[idx];
   const roll = typeof styleHint === 'string'
     ? styleHint
@@ -375,8 +381,8 @@ export function pedMesh(rng) {
   const legR = limbMesh(0.16, 0.72, pantMat); legR.position.set(0.12, 0.76, 0);
   g.add(armL, armR, legL, legR);
 
-  // Walk-cycle consumers (peds.js / peds2.js) index this exact order:
-  // legs first, then arms.
+  // Walk-cycle consumers (peds.js / peds2.js / main.js) index this exact
+  // order: legs first, then arms.
   g.userData.limbs = [legL, legR, armL, armR];
   return g;
 }

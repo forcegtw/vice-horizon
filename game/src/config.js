@@ -1,27 +1,29 @@
-// config.js — the single tuning surface for Vice Horizon.
+// config.js — the tuning table for Vice Horizon.
 //
-// Rules of the house:
-//   * No imports, no DOM, no three.js. Any module can pull this in without
-//     worrying about cycles, and the node smoke harness can load it cold.
-//   * The numbers are a family, not independent knobs: street pitch pairs with
-//     camera booms, car speed pairs with cop shooting ranges, day length pairs
-//     with the ?shot= staging clocks (shots.js duplicates WORLD_DAY on
-//     purpose). Move one and eyeball its neighbours before shipping.
+// Deliberately inert: no imports, no three.js, no DOM. The node smoke
+// harness can load this file cold, and no other module can form an import
+// cycle through it. Every object is frozen so runtime code can never
+// retune the game behind the player's back.
 //
-// All exports are frozen so nothing can silently retune the game at runtime.
+// The numbers are a family, not independent knobs. Lot pitch pairs with
+// camera boom lengths, car top speed pairs with police engagement ranges,
+// and the day clock pairs with the shot stager — shots.js mirrors
+// dayLength in its own file on purpose so it can load without this module.
+// Move one value and eyeball its neighbours before shipping.
 
-// Street-grid geometry and the world clock. One "lot" cell = road plus two
-// sidewalks plus the buildable interior; the whole grid spans blocks x blocks.
+// Street lattice and the world clock. The grid is blocks x blocks lots
+// centred on the origin; one lot is a road strip, two sidewalk margins and
+// the buildable core between them.
 export const WORLD = Object.freeze({
-  blocks: 10,
-  lotSize: 84,
-  roadWidth: 16,
-  sidewalk: 3,
-  dayLength: 165,
+  blocks: 10,      // lots per axis
+  lotSize: 84,     // metres per lot, road included
+  roadWidth: 16,   // drivable width of every street
+  sidewalk: 3,     // paved margin on each side of the road
+  dayLength: 165,  // seconds for one full day/night lap
 });
 
-// On-foot body: movement feel, collision size, and how damage splits between
-// armor and health. Armor eats its share first, health takes the rest.
+// The on-foot body: movement feel, collision size, and how damage splits.
+// Armor eats its absorb share first, health takes whatever is left.
 export const PLAYER = Object.freeze({
   walkSpeed: 8,
   runSpeed: 14,
@@ -47,8 +49,8 @@ export const CAR = Object.freeze({
   health: 100,
 });
 
-// Ambient population density: how many lane-loop cars and sidewalk walkers
-// share the streets with you.
+// Ambient street life: how many lane-loop cars and sidewalk walkers share
+// the blocks with the player.
 export const TRAFFIC = Object.freeze({
   carCount: 26,
   pedCount: 42,
@@ -68,8 +70,8 @@ export const POLICE = Object.freeze({
   despawnCooldown: 12,
 });
 
-// Chase camera: boom length/height differ on foot vs behind the wheel, and a
-// speed-reactive FOV push sells the sense of velocity at top speed.
+// Chase camera: boom length/height differ on foot vs behind the wheel, and
+// a speed-reactive FOV push sells the sense of velocity at top speed.
 export const CAMERA = Object.freeze({
   footBack: 5.8,
   footHeight: 3.0,
@@ -81,7 +83,8 @@ export const CAMERA = Object.freeze({
 });
 
 // Headlight rig for whatever car the player is driving. main.js reads these
-// when building the two SpotLights per stolen vehicle.
+// when building the two SpotLights per stolen vehicle. nightThreshold is
+// measured against dayAmt (0..1 sky brightness), not the hour of day.
 export const HEADLIGHTS = Object.freeze({
   range: 42,
   angle: 0.5,
@@ -89,7 +92,7 @@ export const HEADLIGHTS = Object.freeze({
   onIntensity: 320,
 });
 
-// Ledger autosave cadence in seconds of gameplay.
+// Ledger autosave cadence, in seconds of gameplay.
 export const AUTOSAVE_SECONDS = 10;
 
 // Arsenal. rate = seconds between shots; auto = hold-to-fire.
@@ -128,8 +131,8 @@ export const MISSIONS = Object.freeze([
 // localStorage bucket for the main save (money + story index).
 export const SAVE_KEY = 'vice-horizon-save-v1';
 
-// Shop copy for the gas-station menu. economy.js holds the prices — when you
-// touch a price or its label here, mirror the change there.
+// Shop copy for the gas-station menu. economy.js holds the prices — when
+// you touch a price or its label here, mirror the change there.
 export const UPGRADE_HINTS = Object.freeze({
   speed: 'ENGINE TUNE — +18% top speed',
   plating: 'PLATING — +50 armor capacity',
@@ -145,10 +148,12 @@ export const CASH_RUN = Object.freeze({
 export const SAVE_SCHEMA_VERSION = 2;
 
 // Seeded uniform generator (mulberry32). Every random decision in world
-// generation, traffic layout and shot staging flows through one instance of
-// this, so seed N always rebuilds the identical city. The four shift/add
-// constants are the published mulberry32 constants — swapping any of them
-// changes every saved/replayed layout, so leave them as they are.
+// generation, traffic layout and shot staging flows through one instance,
+// so seed N always rebuilds the identical city. The shift/add constants are
+// the canonical published mulberry32 values — swapping any of them changes
+// every layout ever generated with this function, so leave them as they are.
+// Returns uniform floats in [0, 1); call sites must consume them in a fixed
+// order, because the sequence itself is the determinism contract.
 export function makeRng(seed) {
   let a = seed >>> 0;
   return function rng() {

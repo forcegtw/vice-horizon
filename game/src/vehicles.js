@@ -20,19 +20,23 @@ import { HALF } from './city.js';
 // Traffic paints biased bright so cars pop against the asphalt; obsidian is
 // skipped for spawned traffic (but stays in the table for explicit paints).
 const CAR_COLORS = Object.freeze([0xb0182c, 0x1a3a6b, 0xe8e8ea, 0x101318, 0x8f9299, 0xc9a227, 0x2c6e49, 0xd4581f]);
-const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318);
+const BRIGHT_PAINTS = CAR_COLORS.filter((c) => c !== 0x101318);
 
 const WANDER_GRACE = 30;   // metres past HALF a car may swing wide before recall
 const PROBE = 9;           // lookahead distance for traffic braking
-const POLICE_CAP = 10;     // hard ceiling on simultaneous cruisers
+const CRUISER_CAP = 10;    // hard ceiling on simultaneous police cruisers
 const LANE_OFFSET = 3.4;   // keeps opposing lanes on opposite sides of the line
+const CHASE_FAR = 12;      // beyond this a cruiser flat-out pursues
+const CHASE_NEAR = 6;      // inside this it creeps; between the two it stalks
+const SPAWN_RING_MIN = 70; // cruiser spawn ring around the player, metres
+const SPAWN_RING_SPAN = 30;
 
 // ---------------------------------------------------------------------------
 // Vehicle — shared by the player, traffic and police
 // ---------------------------------------------------------------------------
 export class Vehicle {
   constructor(mesh, x, z, heading, kind) {
-    this.mesh = mesh;
+    this.mesh = mesh;            // may be null — the player's car spawns lazily
     this.kind = kind;            // 'player' | 'traffic' | 'police'
     this.x = x;
     this.z = z;
@@ -44,6 +48,7 @@ export class Vehicle {
     this.wheelSpin = 0;
     this.dead = false;
     this.burnT = 0;
+    this.fireT = 0;              // police weapon cooldown; harmless for others
     this.targetLane = null;
     this.onCrash = null;
     this.onExplode = null;
@@ -173,7 +178,7 @@ export class Traffic {
     for (let i = 0; i < TRAFFIC.carCount; i++) {
       const { lane, along, dir } = pickLane(city.roadLines, rng);
       const place = lanePlacement(lane, along, dir);
-      const mesh = carMesh(CAR_BRIGHT[Math.floor(rng() * CAR_BRIGHT.length)]);
+      const mesh = carMesh(BRIGHT_PAINTS[Math.floor(rng() * BRIGHT_PAINTS.length)]);
       scene.add(mesh);
       const v = new Vehicle(mesh, place.x, place.z, place.heading, 'traffic');
       v.speed = TRAFFIC.carSpeed * (0.7 + rng() * 0.4);
@@ -256,8 +261,8 @@ export class Traffic {
 // ---------------------------------------------------------------------------
 // Police: cruisers pursue while wanted, shoot in range, despawn when calm.
 // ---------------------------------------------------------------------------
-function buildCruiserMesh() {
-  const mesh = carMesh(2); // pearl white base paint
+function buildCruiser() {
+  const mesh = carMesh(2); // pale base paint — the livery sits on top
   const stripeMat = new THREE.MeshStandardMaterial({ color: 0x1c3f8f, roughness: 0.4, metalness: 0.5 });
   for (const s of [-1, 1]) {
     const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.4, 3.6), stripeMat);
@@ -270,17 +275,17 @@ function buildCruiserMesh() {
   );
   barBase.position.set(0, 1.6, -0.35);
   mesh.add(barBase);
-  const mkBeacon = (x, color, emissive) => {
+  const beacon = (x, color, glow) => {
     const b = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.16, 0.3),
-      new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 2 }),
+      new THREE.MeshStandardMaterial({ color, emissive: glow, emissiveIntensity: 2 }),
     );
     b.position.set(x, 1.72, -0.35);
     mesh.add(b);
     return b;
   };
-  const red = mkBeacon(-0.3, 0xff3333, 0xff2222);
-  const blue = mkBeacon(0.3, 0x3366ff, 0x2244ff);
+  const red = beacon(-0.3, 0xff3333, 0xff2222);
+  const blue = beacon(0.3, 0x3366ff, 0x2244ff);
   mesh.userData.beacons = [red, blue];
   return mesh;
 }
@@ -293,7 +298,7 @@ export class Police {
   }
 
   syncCount(wanted, dt, player, solids, rng, city) {
-    const want = Math.min(POLICE.copsPerStar * wanted, POLICE_CAP);
+    const want = Math.min(POLICE.copsPerStar * wanted, CRUISER_CAP);
     if (wanted === 0) {
       // Calm streets: everyone goes home.
       for (const u of this.units) this.scene.remove(u.mesh);
@@ -304,10 +309,10 @@ export class Police {
     if (this.units.length < want && this.spawnTimer <= 0) {
       this.spawnTimer = 1.2;
       const ang = rng() * Math.PI * 2;
-      const dist = 70 + rng() * 30;
+      const dist = SPAWN_RING_MIN + rng() * SPAWN_RING_SPAN;
       const x = THREE.MathUtils.clamp(player.x + Math.sin(ang) * dist, -HALF, HALF);
       const z = THREE.MathUtils.clamp(player.z + Math.cos(ang) * dist, -HALF, HALF);
-      const mesh = buildCruiserMesh();
+      const mesh = buildCruiser();
       this.scene.add(mesh);
       const v = new Vehicle(mesh, x, z, Math.atan2(player.x - x, player.z - z), 'police');
       v.fireT = 0;
@@ -357,11 +362,11 @@ export class Police {
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       const steer = THREE.MathUtils.clamp(diff * 1.6, -1, 1);
 
-      if (dist > 12) {
+      if (dist > CHASE_FAR) {
         u.drive(Math.sin(diff) > -0.4 ? 0.8 : 0.3, steer, dt, solids);
       } else {
         // Close in for the arrest: creep nearer or back off when touching.
-        u.drive(dist > 6 ? 0.5 : -0.4, steer, dt, solids);
+        u.drive(dist > CHASE_NEAR ? 0.5 : -0.4, steer, dt, solids);
       }
 
       // Arcade line-of-sight: in range and alive is enough to fire.
