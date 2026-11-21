@@ -1,5 +1,6 @@
 [
-  { "name": "1-start.jpg", "query": "?shot=start&seed=1", "beat": "title card over a morning city, HUD overlay up" },
-  { "name": "2-play.jpg", "query": "?shot=play&seed=1", "beat": "mid-morning cruise with two wanted stars on the radar" },
-  { "name": "3-night.jpg", "query": "?shot=end&seed=1", "beat": "after dark on foot, cash run underway" }
+  { "name": "1-start.jpg", "query": "?shot=start&seed=1" },
+  { "name": "2-play.jpg", "query": "?shot=play&seed=1" },
+  { "name": "3-night.jpg", "query": "?shot=end&seed=1" }
 ]
+

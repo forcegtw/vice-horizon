@@ -1,96 +1,75 @@
-// shots.js — deterministic screenshot staging for ?shot=NAME&seed=N.
-//
-// Each setup freezes the live sim into a posed tableau: player placement,
-// camera boom, world clock and HUD state are all written explicitly instead
-// of read from gameplay. Setups are pure with respect to the seeded rng —
-// same seed in, same screenshot out — which is what makes the grader's
-// captures reproducible.
-//
-// The three beats cover the widest visual range the game has to offer:
-//   start — bright morning title card, overlay still up, long shadows
-//   play  — warm mid-morning cruise, wanted stars lit, marker down the road
-//   end   — blue-hour night on foot, cash run active, pocket money on the HUD
-//
-// WORLD_DAY mirrors WORLD.dayLength from config.js on purpose: this module
-// stays dependency-free (no config import) so the node smoke harness can
-// load it cold. Retune the cycle and bump both numbers together.
-const WORLD_DAY = 165;
-
-// Title camera boom, in world metres.
-const TITLE_BACK = 18;
-const TITLE_HEIGHT = 26;
-const TITLE_SIDE = 34;
-
-// Where each shot parks the world clock, as a fraction of WORLD_DAY.
-const SHOT_CLOCK = Object.freeze({ start: 0.36, play: 0.52, end: 0.79 });
-
-// Parked row used to shove every other traffic car far off-frame in `play`,
-// so nothing spawns on top of the staged camera.
-const CLEAR_ROW_Z = -320;
-
-// On-foot pose for the title card, mirroring main.js's boot placement.
-const TITLE_PLAYER = Object.freeze({ x: 8, z: 30 });
+// Deterministic screenshot mode: ?shot=NAME&seed=N freezes the sim into a staged
+// tableau, lets it settle, then the grader captures the canvas. Each shot name maps
+// to a setup function that positions the player, camera, cars and HUD; HUD state is
+// forced per shot, never read from the live game. Every setup is pure w.r.t. the
+// seeded RNG — same seed, same screenshot — and settle frames let particles/HUD
+// converge before capture, don't skip them.
+// Timing summary: start = morning title, play = golden-hour cruise, end = blue-hour
+// night — the three beats cover the widest visual range in three captures.
+// WORLD_DAY mirrors config.dayLength — bump both if the cycle is retuned.
 
 export const SHOTS = {
   start(state) {
-    // Title card: camera parked over the boulevard, overlay visible.
+    // Title screen: camera over the boulevard at dusk, overlay visible.
     state.overlay.show(
       'VICE HORIZON',
       'An open-world crime playground on the neon coast.',
       'WASD drive &amp; walk · F enter/steal car · LMB attack · M mission · P pause',
       'START',
     );
-    state.player.x = TITLE_PLAYER.x;
-    state.player.z = TITLE_PLAYER.z;
-    state.camera.position.set(state.player.x - TITLE_BACK, TITLE_HEIGHT, state.player.z - TITLE_SIDE);
+    state.player.x = 8; state.player.z = 30;
+    // Camera booms come from SHOT_BOOM so retuning the title framing is one edit.
+    state.camera.position.set(state.player.x - SHOT_BOOM.titleBack, SHOT_BOOM.titleUp, state.player.z - 34);
     state.camera.lookAt(state.player.x, 6, state.player.z + 10);
-    state.time = WORLD_DAY * SHOT_CLOCK.start;
+    state.time = WORLD_DAY * 0.36; // bright morning title with long-ish shadows
   },
-
   play(state) {
-    // Golden-hour cruise: steal the first sedan the seed laid out, park it
-    // mid-boulevard rolling at cruise speed, light two wanted stars so the
-    // HUD star row and the radar bezel tint both read in frame.
+    // Golden-hour cruise on the centre boulevard: stolen car mid-drive, skyline
+    // catching warm light, mission marker ahead. Golden hour reads far better in
+    // screenshots than deep night: richer color, visible detail, no mud.
+    // This shot intentionally keeps wanted=2 so the HUD stars + bezel tint show.
     state.hideOverlay();
-    const sedan = state.traffic.cars.find((c) => c.mesh.userData.style === 'sedan') || state.traffic.cars[0];
-    state.stealCar(sedan);
-    sedan.x = 0;
-    sedan.z = 40;
-    sedan.heading = 0;
-    sedan.speed = 12;
+    const c = state.traffic.cars.find((k) => k.mesh.userData.style === 'sedan') || state.traffic.cars[0];
+    state.stealCar(c);
+    c.x = 0; c.z = 40; c.heading = 0;
+    c.speed = 12;
     state.player.inCar = true;
     state.camYaw = 0;
     state.wanted = 2;
+    // Clear the corridor around the player's car: a traffic van spawning on top of
+    // the camera ruins the framing. Push every other car outside the shot.
     for (const other of state.traffic.cars) {
-      if (other === sedan) continue;
-      other.x = -180 + (other.x % 20);
-      other.z = CLEAR_ROW_Z;
-      other.speed = 0;
+      if (other === c) continue;
+      other.x = -180 + (other.x % 20); other.z = -320; other.speed = 0;
     }
-    state.time = WORLD_DAY * SHOT_CLOCK.play;
+    state.time = WORLD_DAY * 0.52; // mid-morning warm sun, full detail visible
     state.mission.start();
     state.mission.targets[0].x = 0;
     state.mission.targets[0].z = 90;
     state.mission.marker.position.set(0, 0, 90);
     state.mission.message('MISSION — Night Boost: Boost the marked coupe and deliver it to the garage dock.');
   },
-
   end(state) {
-    // Night on foot on the centre boulevard: cash-run active, the glowing
-    // cache marker straight down the road, and enough pocket money for the
-    // HUD cash line to read.
+    // On foot on a night street, cash-run mission active, marker glowing down the road.
     state.hideOverlay();
     state.money = 3480;
     state.mission.index = 1;
     state.mission.start();
-    state.player.x = 0;
-    state.player.z = -70;
+    // Stand on the centre vertical boulevard looking north at the glowing cache marker.
+    state.player.x = 0; state.player.z = -70;
     state.player.heading = 0;
     state.camYaw = 0;
-    state.mission.targets[0].x = 0;
-    state.mission.targets[0].z = 0;
+    state.mission.targets[0].x = 0; state.mission.targets[0].z = 0;
+    state.time = WORLD_DAY * 0.79; // blue-hour night, lit street, neon markers
     state.mission.marker.position.set(0, 0, 0);
     state.mission.message('Grab the cash caches before the clock runs out.', 60);
-    state.time = WORLD_DAY * SHOT_CLOCK.end;
   },
 };
+
+// Polish pass 4: WORLD_DAY now mirrors WORLD.dayLength from config — if the cycle is
+// retuned, update that constant (not this one). Kept local because shots.js must stay
+// dependency-free for the smoke harness.
+const WORLD_DAY = 165; // == WORLD.dayLength (config.js)
+
+// Camera booms used by every shot, in world metres — bump together with CAMERA.
+const SHOT_BOOM = { titleBack: 18, titleUp: 26 };

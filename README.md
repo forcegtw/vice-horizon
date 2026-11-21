@@ -1,8 +1,8 @@
 # Vice Horizon
 
-An open-world crime playground that runs entirely in the browser: jack cars, rack up heat,
-outrun the cops, and work the city's missions across a neon skyline. Built on a vendored
-three.js r160 with plain ES modules — no framework, no build step, no network calls.
+An open-world crime game that runs in the browser: steal cars, outrun the police, and run
+cash-cache missions across a neon city — built with three.js (vendored, r160) and plain ES
+modules, no build step.
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/forcegtw/vice-horizon/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
@@ -11,78 +11,72 @@ three.js r160 with plain ES modules — no framework, no build step, no network 
 ## Play
 
 ```bash
-node serve.ts        # the game comes up at http://localhost:8080
+node serve.ts        # serve the game at http://localhost:8080
 ```
 
 Controls: **WASD** walk / drive · **Shift** sprint · **F** enter or steal a car · **LMB** attack ·
 **E / Q** cycle weapons · **T** next story job · **G** side-job board · **J / K** radio (in car) ·
 **B / N / V / C** shop at a gas station · **M** big map · **P** pause · **R** respawn.
 
-## Features
+## Systems
 
-- Three-quest story chain: boost and deliver a car, a timed cash-cache sweep, and a rival
-  elimination — glowing 3D markers, HUD briefs, payouts on completion.
-- Side-job board (G): checkpoint races with a start-line gate, timed deliveries with a
-  speed bonus (up to +25% for an early haul), and rampage contracts whose kills feed the
-  wanted system.
-- Heat-driven wanted level: crimes bank heat, stars spawn cops per level, cops shoot
-  above 30 m, heat decays once nobody has line of sight; escape or respawn to clear.
-- Weather cycle (clear / overcast / rain / storm): wet asphalt sheen, thickened fog, rain
-  particles, lightning — riding the same day/night clock as everything else.
-- Four-station procedural radio synthesized in WebAudio (one mood per station), station
-  cycling with a jingle, mute toggle, in-car only; the fourth "station" is RADIO OFF.
-- Gas-station shops: health, armor, engine tune (+18% top speed) and plating (+50 armor
-  capacity), persisted in a versioned localStorage ledger merged with the main save.
-- Corner radar (rotating, roads / blips / police dots / traffic flecks, bezel tints red
-  while wanted) plus a full-city map on M with side-job route blips.
-- Day/night cycle (165 s): shader sky dome with stars, orbiting sun + moonlight, flickering
-  neon signage, headlight rig fading in at dusk, PMREM reflections that dim at night.
-- Multi-part vehicles (extruded bodies, glass canopies, torus tires on spoked rims,
-  emissive lights) and jointed pedestrian rigs with walk-animation tiers and fear-flee.
-- Versioned localStorage saves with v1→v2 migration, remappable input bindings, WebAudio
-  SFX (enveloped tones, engine hum, wailing siren), pooled spark/explosion particles, and
-  a deterministic `?shot=NAME&seed=N` screenshot mode.
+| System | What it does |
+| --- | --- |
+| Wanted | Heat banks from crimes (carjacks, gunfire, ped hits); stars spawn cops per level, cops shoot above 30 m, heat decays once nobody has line of sight; escape or respawn to clear. The HUD shows stars plus a tinted heat bar. |
+| Weather | Clear / overcast / rain / storm cycle — wet asphalt darkens and gains sheen, fog thickens, rain particles and two-bolt lightning strikes ride the day/night clock. The HUD clock shows the current weather label. |
+| Radio | Four-station procedural synthwave loop synthesized in WebAudio (bass + arp + hats + kick, one mood per station), station cycling with a jingle sting, mute toggle, in-car only. K mutes; the fourth "station" is RADIO OFF. |
+| Economy | Gas-station shops sell health, armor, engine tune (+18% top speed) and plating (+50 armor capacity); purchases persist in a versioned localStorage ledger merged with the main save. |
+| Minimap | Corner radar (roads, player arrow, mission blip, police dots, traffic flecks) plus a full-map overlay on M with side-job blips; the radar bezel tints red while wanted. |
+| Side jobs | Races (checkpoint chains), timed deliveries with a speed bonus (up to +25% for an early haul) and rampage contracts, started with G, paid on completion; rampage kills feed the wanted system. |
+| Missions | Story chain: car delivery, timed cash-cache run, rival elimination — with markers, HUD briefs and payouts credited on completion. |
+| Day/night | 165 s cycle: shader sky dome with stars, orbiting sun + moonlight, neon signage flicker, headlight rig that fades in at dusk. |
 
-Honest limits: this is an arcade sandbox, not a sim — collisions are circle-vs-AABB,
-aiming is a simple forward ray with no wall occlusion, and traffic runs on lane-loop AI
-rather than pathfinding.
+## What's in it
+
+- Three vehicle bodies (sedan/coupe, van, truck) with extruded profiles, glass canopies, torus
+  tires on spoked rims, emissive lights, exhausts and antennas
+- Pedestrians with jointed walk-animation tiers (stroll / hurry / sprint / idle), fear-flee from
+  wanted players, and district crowd density
+- A day/night cycle with a shader sky, warm sun, moonlight, neon signage and lit facades; a
+  PMREM environment map whose reflections dim at night
+- Traffic that brakes for cars and the player, police that escalates with your wanted level,
+  pedestrians that flee gunfire, WebAudio sound effects (enveloped tones, wailing siren) and a
+  pooled particle system for sparks and explosions
+- Gas-station shop stops (health / armor / engine tune / plating) with a cash ledger that
+  persists separately from the main save
+- Versioned localStorage saves with v1→v2 migration, remappable input bindings, and a
+  deterministic `?shot=NAME&seed=N` screenshot mode
+
+Note: this is an arcade sandbox, not a sim — collisions are circle-vs-AABB, aiming is a
+simple forward ray with no wall occlusion, and traffic runs on lane-loop AI rather than
+pathfinding.
 
 ## Architecture
 
 ```
 game/index.html        shell: canvas + a11y status line, loads src/main.js as an ES module
-main.ts / serve.ts     entry packaging (copies game/ + screenshots/ into /output, writes dossier.json)
-                       and the local static server
-shots.json             screenshot list: file name -> ?shot= query used by the capture tooling
 game/src/config.js     all tuning constants + mission table + seeded RNG (dependency-free)
 game/src/main.js       boot + the per-frame system pipeline (see the phase-order note there)
 game/src/{city,sky,env,weather}.js   world build & atmosphere (textures painted on canvas at boot)
-game/src/{models,vehicles,peds,peds2}.js  multi-part meshes, arcade physics, traffic/police AI,
-                                          pedestrian rigs & life layer
+game/src/{vehicles,peds,peds2,models}.js  arcade physics, traffic/police AI, pedestrian rigs & life layer
 game/src/{missions,missions2}.js     story chain + side-job board (races / deliveries / rampage)
 game/src/{wanted,economy,save}.js    heat/stars, cash & upgrades, versioned localStorage saves
 game/src/{hud,minimap}.js            DOM/canvas UI: corner radar, big map, overlays
 game/src/{sfx,radio}.js              WebAudio synth: SFX + four procedural radio stations
 game/src/{input,shots}.js            remappable bindings + deterministic ?shot= staging
-vendor/three.min.js    vendored three.js r160 (unmodified)
-scripts/               smoke checks + headless screenshot verification
 ```
 
 Cross-module contracts to know before editing: `city.solids` AABBs are the only collision
 data; `state` in main.js is the shared bus (money, wanted, police/traffic lists); peds2
 layers onto peds.js records rather than owning meshes; economy and the main save merge
-through `economy.bind(state)`; money has a single writer per source — missions credit via
-`mission.collectReward(state)`, side jobs via the `sideJobs.onReward` callback.
+through `economy.bind(state)`. Smoke checks live in `scripts/smoke-*.mjs`.
 
 ## Notes
 
-- Runs fully offline: three.js r160 is vendored under `game/vendor/`, audio and textures
-  are synthesized at runtime, so the first load needs no network.
-- Saves live in `localStorage` (versioned schema; a corrupt entry starts fresh) — deleting
-  site data resets progress.
-- Smoke checks: `node scripts/smoke-economy.mjs`, `node scripts/smoke-new-systems.mjs`,
-  `node scripts/check-headless.mjs`, and `node scripts/verify-shots.mjs` for
-  zero-console-error screenshot runs.
+- Runs fully offline: three.js r160 is vendored under `game/vendor/`, audio and textures are
+  synthesized at runtime, so the first load needs no network.
+- Saves live in `localStorage` (versioned schema, corrupt entries start fresh); delete site data
+  to reset progress.
 
 ## Entry
 

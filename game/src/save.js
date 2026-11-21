@@ -1,85 +1,63 @@
-// save.js — the main progress save: cash and story position, versioned.
-//
-// The four rules this module lives by:
-//   * The schema version leads every record it writes, so a future reader
-//     can branch before trusting any other field.
-//   * Reading never throws. Corrupt JSON, an unknown future version and
-//     non-finite money all resolve to null, and the game boots broke instead
-//     of crashing.
-//   * Writing is best-effort: private-mode storage and full quotas surface as
-//     swallowed errors. Losing an autosave beats losing the frame.
-//   * clearSave() wipes every bucket this build owns, so a reset can never
-//     leave the economy ledger half-alive.
-//
-// Bump SAVE_SCHEMA_VERSION in config.js whenever a persisted field changes;
-// migrate() walks older records up to the current shape.
+// Save/load: money, mission progress and stats persist to localStorage.
+// Schema version lives first in the object; validate it before trusting other fields.
+// Parse failures or malformed saves return null, so a corrupt entry starts fresh
+// instead of crashing boot. Writes are try/caught — quota errors degrade to a
+// silent no-save, never a crash. Old saves without a version field are migrated
+// (v1 assumed) rather than discarded; money is range-checked and non-finite
+// values rejected so a hand-edited save can't poison the HUD.
+// Bump SAVE_SCHEMA_VERSION in config.js before changing persisted fields.
+// Both storage keys are named here once so clearSave() can never miss one.
 
 import { SAVE_KEY, SAVE_SCHEMA_VERSION } from './config.js';
 
-// One past the versions migrate() understands.
-const TARGET_VERSION = SAVE_SCHEMA_VERSION;
+// Economy ledger key — lives beside the main save and is wiped with it.
+const ECO_KEY = 'vice-horizon-economy-v1';
 
-// The economy module's ledger bucket; clearSave() wipes it so a reset is total.
-// economy.js holds the same string — keep the two in step.
-const ECONOMY_LEDGER_KEY = 'vice-horizon-economy-v1';
-
-// v1 records predate explicit stamping: a versionless object with a numeric
-// money field reads as v1, anything else is unreadable.
-function versionOf(record) {
-  if (typeof record.version === 'number') return record.version;
-  return typeof record.money === 'number' ? 1 : null;
-}
-
-// Lift an older record to the current schema. Null means unsalvageable.
-function migrate(record, fromVersion) {
-  const out = { ...record };
+// Migrate an older save object up to the current schema. Returns null if it
+// can't be salvaged. Each step mutates a shallow copy and stamps its version.
+function migrate(data, fromVersion) {
+  const out = { ...data };
+  // v1 -> v2: introduced explicit version stamping and the economy ledger slot.
   if (fromVersion < 2) {
-    // v1 -> v2: stamp the version and reserve the economy slot. A ledger
-    // blob already nested in the main save keeps its shape; anything else
-    // becomes null so the economy module starts from its own storage.
     out.version = 2;
     out.economy = out.economy && typeof out.economy === 'object' ? out.economy : null;
   }
-  return out.version === TARGET_VERSION ? out : null;
+  return out.version === SAVE_SCHEMA_VERSION ? out : null;
 }
 
 export function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return null;   // corrupt JSON: a fresh start beats a dead boot
-    }
-    const version = versionOf(parsed);
-    if (version === null || version > TARGET_VERSION) return null;
-    const record = migrate(parsed, version);
-    if (!record) return null;
-    if (!Number.isFinite(record.money)) return null;
-    if (record.money < 0) record.money = 0;   // debt is not a save state
-    // The caller (main.js) clamps missionIndex against MISSIONS.length.
-    return record;
+    const data = JSON.parse(raw);
+    const version = typeof data.version === 'number' ? data.version
+      : (typeof data.money === 'number' ? 1 : null); // versionless = v1 save
+    if (version === null || version > SAVE_SCHEMA_VERSION) return null;
+    const migrated = migrate(data, version);
+    if (!migrated) return null;
+    if (!Number.isFinite(migrated.money)) return null;
+    if (migrated.money < 0) migrated.money = 0; // corrupt/below-zero resets to broke, not null
+    // Mission index is clamped by the caller (main.js), so no range check here —
+    // keep this module's contract: money + version only.
+    return migrated;
   } catch {
-    return null;   // storage refused outright (disabled, private mode, quota)
+    return null;
   }
 }
 
 export function writeSave(data) {
   try {
+    // Every write is stamped with the current schema version, version first so
+    // future readers can branch on it without parsing the whole object.
     localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SAVE_SCHEMA_VERSION, ...data }));
   } catch {
-    /* best-effort by design */
+    // Storage may be unavailable (private mode): saving is best-effort.
   }
 }
 
-// Every storage bucket this build owns; clearSave() walks the whole list so
-// a reset can never leave one half-alive.
-const CLEAR_KEYS = [SAVE_KEY, ECONOMY_LEDGER_KEY];
-
 export function clearSave() {
-  for (const key of CLEAR_KEYS) {
-    try { localStorage.removeItem(key); } catch { /* ignore */ }
-  }
+  // Wipes both ledgers (main save and the economy key) so a "reset progress"
+  // affordance can't leave half the state behind.
+  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(ECO_KEY); } catch { /* ignore */ }
 }
