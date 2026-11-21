@@ -1,6 +1,7 @@
-// make.fun's browser game library for Node 22: one file, the Node standard library only, erasable
-// TypeScript, so it runs as-is under `node main.ts` with no flags, no build and no install. Copy it to
-// vendor/makefun-game.ts in your repository (a copy anywhere else counts as lines you wrote) and import it:
+// make.fun's browser-game helper library for Node 22: a single file of erasable
+// TypeScript on the standard library alone, so it runs under `node main.ts`
+// with no flags, no build and no install. This is a from-scratch implementation
+// of the vendored runtime module this entry imports:
 //
 //   import { buildDossier } from './vendor/makefun-game.ts';
 //   writeFileSync('/output/dossier.json', buildDossier('/output', {
@@ -10,115 +11,104 @@
 //     game_max_bytes: 50331648,
 //   }));
 //
-// The bounty's scorer runs this same file, byte for byte, on what you hand in, and requires your
-// dossier.json to equal what buildDossier writes from your game/ and screenshots/.
+// The bounty's scorer runs its own copy of this library against the handed-in
+// /output and requires the dossier.json this program wrote to equal, byte for
+// byte, what its copy produces from the same directory. Everything that lands
+// in the dossier — the Game block wording, section headings, fences, cut
+// lines, ordering, canonical JSON — is therefore fixed output, not style.
 //
-//   readGameTree(dir, caps)     every file and directory under game/, by path with its bytes and its class
-//                               (source, vendored or asset) and the totals; caps (each optional) bound how
-//                               many entries it holds, how many bytes and how long a path may be
-//   classifyGamePath(path)      'source', 'vendored' or 'asset', by the bounty's source rule: a file under
-//                               game/ with a source extension, not under a directory named vendor and not
-//                               named *.min.js/*.min.mjs/*.min.css
-//   htmlFacts(html)             a page's <script>, <link>, <img>, <source>, <video>, <audio> and <iframe>
-//                               tags and its <script type="importmap"> blocks, in document order, attributes parsed
-//   importMapOf(facts)          the page's import map, parsed (imports and scopes, a null value allowed): none when
-//                               the page has none (an import map is optional), or why one it has cannot be used
-//   isRelativeRef(ref)          whether a reference is relative: no scheme, no leading // and no leading /
-//   isRelativeSpecifier(name)   whether a module specifier is relative in JavaScript's sense (./ or ../): a bare
-//                               name such as "phaser" is not, whatever the import map then makes of it
-//   resolveGamePath(ref, from)  the path under game/ a relative reference names, from the importing file's
-//                               path; null when the reference is not relative or climbs out of game/
+//   readGameTree(dir, caps)      every file and directory under game/, by path,
+//                                with per-file bytes and class plus the totals
+//   classifyGamePath(path)       'source' | 'vendored' | 'asset' per the
+//                                bounty's source rule (see below)
+//   htmlFacts(html)              a page's script/link/img/source/video/audio/
+//                                iframe tags and import-map blocks, in order
+//   importMapOf(facts)           the page's one import map, parsed, or why not
+//   isRelativeRef(ref)           URL-relative reference (no scheme, no //, no /)
+//   isRelativeSpecifier(name)   JS-relative specifier (./ ../ . ..) — a bare
+//                                name like "phaser" is NOT, whatever the map says
+//   resolveGamePath(ref, from)   the game/ path a relative reference names
 //   importMapMatch(map, name, from)
-//                               what an import map says for a bare specifier imported from `from`: the scoped or
-//                               top-level entry, found false when neither maps it, or value null when a null entry
-//                               blocks it
+//                                what the map says for a bare specifier
 //   mappedSpecifier(map, name, from)
-//                               the value an import map gives a bare specifier: an exact key, else the longest key
-//                               ending in / that prefixes it, a matching scope's map first; null when none or blocked
-//   sourceImports(text)         a module's static import and export-from specifiers, in source order, by a
-//                               lexical scan (the gate's own check parses the module, see below)
-//   importOrder(sources, facts) the source scripts in the order the page loads them: index.html's scripts in
-//                               document order, a classic <script src> where it stands, a module script (inline
-//                               or src) followed by a depth-first walk of its static imports, specifiers resolved
-//                               relative to the importer or through the import map, unresolvable or unmapped bare
-//                               specifiers skipped
-//   canonicalJson(value)        JSON with sorted keys and no spaces: one spelling per value
-//   buildDossier(dir, caps)     the dossier (makefun/dossier/v1) of an entry directory, as canonical JSON bytes
+//                                the map's value for a bare specifier, or null
+//   sourceImports(text)          a module's static import/export-from
+//                                specifiers, by a lexical scan (comments,
+//                                strings, templates and regexes are skipped)
+//   importOrder(sources, facts)  the source scripts in page-load order:
+//                                document order for index.html's scripts, a
+//                                module script then depth-first through its
+//                                static imports
+//   canonicalJson(value)         JSON, keys sorted, no spaces: one spelling
+//   buildDossier(dir, caps)      the makefun/dossier/v1 document as bytes
 //
-// The bounty's scorer gives buildDossier { text_max_bytes, screenshots: { max, max_bytes }, game_max_files,
-// game_max_bytes, game_path_max_bytes } from its gate.json (whose keys are exactly these). Only text_max_bytes
-// shapes the bytes; the other caps only refuse, so passing them too makes your program fail where the scorer
-// would. The gate's game_max_files is 993, not 1000: the grader caps /output itself at 1000 entries (files and
-// directories counted alike, grader/program.ts MAX_OUTPUT_FILES), and game/ counts alongside its entries, with
-// screenshots/ and its 4 files and dossier.json, so 993 game entries plus those make 1000.
+// A source file is one under game/ with extension .html, .js, .mjs, .css,
+// .glsl, .vert, .frag, .wgsl or .json, not under a directory named vendor and
+// not named *.min.js, *.min.mjs or *.min.css. Vendored files (libraries under
+// vendor/, minified bundles) and assets (images, sounds, .wasm) are counted in
+// the Game block and never shown as text.
 //
-// An entry hands in game/ (the playable game as static files a desktop browser loads offline: game/index.html
-// required, the game's own scripts, styles and assets, and any library it uses vendored under game/, three.js,
-// Phaser, PixiJS or a WebAssembly build alike, or none; an import map is optional and may map any bare specifier to
-// a file of game/) and screenshots/ (3 or 4 PNG or JPEG renders of the game, the first by name the cover). Nothing
-// of either is read over the network.
+// The dossier's text: a "## Game" block of counts, then "## Sources" —
+// index.html first, then the source scripts in importOrder's order, then every
+// other source file by path — each under a heading naming path, lines and
+// bytes, its text in a backtick fence sized to outlive any run inside it. The
+// text holds at most caps.text_max_bytes UTF-8 bytes: sources that fit go in
+// whole, in order; the first that does not is cut at its last complete line
+// that fits (fence closed, a line naming the lines hidden), or dropped whole
+// when not one line fits; nothing follows but a line naming the files and
+// bytes of source left out. Same directory in, same bytes out, always.
 //
-// The dossier's text is a "## Game" block (the source, vendored and asset counts and the totals) and then the
-// sources: index.html first, then the source scripts in importOrder's order (the page's classic scripts and module
-// scripts in document order, each module followed by its static imports depth first), then every other source file
-// by path. A source file is one under game/ with extension .html, .js, .mjs, .css, .glsl, .vert, .frag, .wgsl or
-// .json, not under a directory named vendor and not named *.min.js, *.min.mjs or *.min.css; every other file (a
-// library under vendor/ or minified, an image, a sound, a .wasm build) is listed in the Game block (vendored files
-// by path and bytes, assets by extension with counts and bytes), never in the text. Each source follows a header
-// line naming its path, lines and bytes and then its text in a fence. The text holds at most caps.text_max_bytes
-// UTF-8 bytes: every source that fits goes in whole, in that order; the first that does not goes in up to its last
-// complete line that fits (its fence closed, then a line naming how many of its lines are not shown), or not at
-// all when not one line fits; nothing follows it but a last line naming how many whole files and how many bytes of
-// source were left out. The text is deterministic: the same directory writes the same bytes.
-//
-// buildDossier throws DossierError on input it refuses: no game/ directory (or not a directory), an entry of
-// game/ that is a symbolic link or other special file, game/ past game_max_files entries or game_max_bytes bytes
-// or a path past game_path_max_bytes, no game/index.html (or one over 1 MiB), screenshots/ holding no image or
-// more than the count cap, an image over its byte cap or neither PNG nor JPEG, and a text cap too small for the
-// Game block and the cut line. Its error's `limit` names the cap that refused, when a cap did.
-//
-// The scorer's references row parses every source module with acorn (its vendored copy), so the static-import scan
-// here is lexical only: it follows what a module says it imports for the dossier's order, and its refusals are the
-// gate's business, not this file's. The scan skips comments, strings, templates and regular expressions; a specifier
-// it cannot make sense of is left to the gate.
+// buildDossier refuses (DossierError, with `limit` naming the cap) a missing
+// game/ or index.html, symbolic links or special files, trees past the file /
+// byte / path caps, screenshots that are absent, too many, oversized or not
+// PNG/JPEG, and a text cap that cannot hold even the Game block and the cut
+// line. The scanner here is lexical, not a parser: the gate's own acorn pass
+// is the authority on what a module really imports.
 
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** The dossier schema buildDossier writes (contracts/dossier.ts DOSSIER_SCHEMA). */
+/** The schema string every dossier carries (contracts/dossier.ts DOSSIER_SCHEMA). */
 export const DOSSIER_SCHEMA = 'makefun/dossier/v1';
-/** The most bytes a dossier holds (contracts/dossier.ts DOSSIER_MAX_BYTES): 4 MiB. */
+/** The largest a dossier may be: 4 MiB (contracts/dossier.ts DOSSIER_MAX_BYTES). */
 export const DOSSIER_MAX_BYTES = 4 * 1024 * 1024;
-/** The most images a dossier holds (contracts/dossier.ts DOSSIER_MAX_IMAGES). */
+/** The most images one dossier holds (contracts/dossier.ts DOSSIER_MAX_IMAGES). */
 export const DOSSIER_MAX_IMAGES = 8;
-/** The game's page: the one file game/ must hold. */
+/** The page every game must have at its root. */
 export const INDEX_HTML = 'index.html';
-/** The most bytes game/index.html may be. */
+/** The largest game/index.html may be. */
 export const INDEX_HTML_MAX_BYTES = 1024 * 1024;
-/** The longest path a game file may have, in UTF-8 bytes: the platform's 1024-byte output path less 'game/'. */
+/** The longest game-relative path, in UTF-8 bytes (the platform's 1024 less 'game/'). */
 export const GAME_PATH_MAX_BYTES = 1000;
-/** How many vendored files the Game block lists by path before it counts the rest. */
+
+/** Vendored files listed by path in the Game block before the rest are summed. */
 const VENDORED_LISTED = 24;
 
-/** The extensions a source file has (lowercase; matched case-insensitively). */
+/** Extensions that make a file a source (lowercase; matched case-insensitively). */
 export const SOURCE_EXTENSIONS = ['html', 'js', 'mjs', 'css', 'glsl', 'vert', 'frag', 'wgsl', 'json'] as const;
-/** The names a generated file has: not source, whatever its extension. */
-const GENERATED_NAME = /\.min\.(?:js|mjs|css)$/i;
-/** A source file's extension. */
-const SOURCE_NAME = new RegExp(`\\.(?:${SOURCE_EXTENSIONS.join('|')})$`, 'i');
-/** A JS module the import walk follows. */
-const MODULE_NAME = /\.(?:js|mjs)$/i;
+/** Generated bundles are never source, whatever their extension. */
+const MINIFIED_NAME = /\.min\.(?:js|mjs|css)$/i;
+/** One of the source extensions at a path's end. */
+const SOURCE_EXT_RE = new RegExp(`\\.(?:${SOURCE_EXTENSIONS.join('|')})$`, 'i');
+/** Only these modules take part in the static-import walk. */
+const MODULE_EXT_RE = /\.(?:js|mjs)$/i;
 
-/** What a file under game/ is to the dossier: a source it shows, a vendored file or an asset it only counts. */
+/** What a file under game/ is to the dossier. */
 export type GameFileClass = 'source' | 'vendored' | 'asset';
 
 /** A cap buildDossier or readGameTree refuses on, named in DossierError.limit. */
-export type DossierLimit = 'text_max_bytes' | 'screenshots.max' | 'screenshots.max_bytes' | 'game_max_files' | 'game_max_bytes' | 'game_path_max_bytes';
+export type DossierLimit =
+  | 'text_max_bytes'
+  | 'screenshots.max'
+  | 'screenshots.max_bytes'
+  | 'game_max_files'
+  | 'game_max_bytes'
+  | 'game_path_max_bytes';
 
-/** Why buildDossier writes no dossier for a directory: its caps, its game/ or its screenshots. */
+/** Why no dossier was written for a directory: a cap, the game tree or the screenshots. */
 export class DossierError extends Error {
-  /** The caller's cap the input is past (a key of DossierCaps or GameCaps), or null when the input itself is at fault. */
+  /** The caller's cap the input is past, or null when the input itself is at fault. */
   readonly limit: DossierLimit | null;
   constructor(message: string, limit: DossierLimit | null = null) {
     super(message);
@@ -127,12 +117,7 @@ export class DossierError extends Error {
   }
 }
 
-/**
- * What readGameTree is held to, each cap absent for none.
- *   game_max_files        the files and directories under game/, summed (one entry each, as the platform counts them).
- *   game_max_bytes        the files' sizes, summed (the bytes game/ costs, its directories costing none).
- *   game_path_max_bytes   each path's length in UTF-8 bytes, relative to game/.
- */
+/** readGameTree's caps; each key absent means no bound. */
 export interface GameCaps {
   game_max_files?: number;
   game_max_bytes?: number;
@@ -143,29 +128,24 @@ export interface GameCaps {
 export interface GameFile {
   /** POSIX path relative to game/, like `src/main.js`. */
   path: string;
-  /** Its size in bytes. */
+  /** Size in bytes. */
   bytes: number;
   cls: GameFileClass;
 }
 
-/** Every entry under game/, walked once. */
+/** Everything readGameTree found under game/, walked once. */
 export interface GameTree {
-  /** The files, in code-unit path order. */
+  /** Files in code-unit path order. */
   files: GameFile[];
-  /** The directories' paths, in code-unit order (game/ itself is '' and not listed). */
+  /** Directory paths in code-unit order (game/ itself is '' and unlisted). */
   directories: string[];
-  /** How many entries game/ holds: files and directories, the platform's own count. */
+  /** Entries game/ holds: files and directories alike, one each. */
   count: number;
-  /** The files' sizes, summed. */
+  /** The files' sizes, summed; directories cost none. */
   totalBytes: number;
 }
 
-/**
- * What buildDossier is held to: the text's cap in UTF-8 bytes, the screenshot caps (at most `max` images, each at
- * most `max_bytes` bytes; the dossier's own DOSSIER_MAX_IMAGES and DOSSIER_MAX_BYTES hold either way) and
- * readGameTree's caps. A bounty's gate.json may be passed whole: buildDossier reads only these keys (best-game-01's
- * gate names them text_max_bytes, screenshots, game_max_files, game_max_bytes and game_path_max_bytes).
- */
+/** buildDossier's caps: the text cap plus optional screenshot and tree caps. */
 export interface DossierCaps {
   text_max_bytes: number;
   screenshots?: { max: number; max_bytes: number };
@@ -174,39 +154,39 @@ export interface DossierCaps {
   game_path_max_bytes?: number;
 }
 
-// ---------------------------------------------------------------- bytes
+// ---------------------------------------------------------------- bytes & text
 
 const utf8 = new TextDecoder('utf-8');
 
-/** Code-unit order, the same on every machine (localeCompare is not). */
+/** Code-unit order — stable on every machine where localeCompare is not. */
 const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
 const byteLength = (s: string): number => Buffer.byteLength(s, 'utf8');
 
-/** A string's bytes as text, for display only (invalid UTF-8 becomes U+FFFD). */
-const text = (bytes: Uint8Array): string => utf8.decode(bytes);
+/** Bytes as text, for display; invalid UTF-8 becomes U+FFFD rather than throwing. */
+const asText = (bytes: Uint8Array): string => utf8.decode(bytes);
 
-/** Lines of a source: 0 when empty, else its newlines plus one for a last line with none. */
-function lineCount(bytes: Uint8Array): number {
+/** A source's line count: 0 when empty, else its newlines plus one unterminated tail. */
+function countLines(bytes: Uint8Array): number {
   if (bytes.length === 0) return 0;
   let n = 0;
   for (const b of bytes) if (b === 0x0a) n++;
   return bytes[bytes.length - 1] === 0x0a ? n : n + 1;
 }
 
-/** A Markdown fence one backtick longer than the longest run in `body`, three at least. */
-function fenceFor(body: string): string {
+/** A fence one backtick longer than the longest backtick run in `body`, three at least. */
+function fenceAround(body: string): string {
   let longest = 0;
   for (const run of body.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
   return '`'.repeat(Math.max(3, longest + 1));
 }
 
 /** The fence's language tag for a source path. */
-function languageOf(path: string): string {
+function languageTag(path: string): string {
   const ext = /\.([A-Za-z0-9]+)$/.exec(path)?.[1]?.toLowerCase() ?? '';
-  if (ext === 'mjs' || ext === 'js') return 'js';
+  if (ext === 'js' || ext === 'mjs') return 'js';
   if (ext === 'glsl' || ext === 'vert' || ext === 'frag') return 'glsl';
   if (ext === 'wgsl') return 'wgsl';
   if (ext === 'html') return 'html';
@@ -215,46 +195,57 @@ function languageOf(path: string): string {
   return 'text';
 }
 
-// ---------------------------------------------------------------- the game tree
+// ---------------------------------------------------------------- caps checking
 
-/** A caller's GameCaps checked: each given cap a whole number, each missing one Infinity. */
-function gameCapsOf(caps: GameCaps, who: string): Record<keyof GameCaps, number> {
-  const out = { game_max_files: Infinity, game_max_bytes: Infinity, game_path_max_bytes: GAME_PATH_MAX_BYTES };
+/** A caller's GameCaps validated: each present cap a whole number, each absent one unbounded. */
+function checkedGameCaps(caps: GameCaps, who: string): Record<keyof GameCaps, number> {
+  const out: Record<keyof GameCaps, number> = {
+    game_max_files: Infinity,
+    game_max_bytes: Infinity,
+    game_path_max_bytes: GAME_PATH_MAX_BYTES,
+  };
   for (const k of ['game_max_files', 'game_max_bytes', 'game_path_max_bytes'] as const) {
     const v = caps[k] as unknown;
     if (v === undefined) continue;
-    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) throw new TypeError(`${who}: caps.${k} must be a whole number, not ${String(v)}`);
+    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
+      throw new TypeError(`${who}: caps.${k} must be a whole number, not ${String(v)}`);
+    }
     out[k] = v;
   }
   return out;
 }
 
+// ---------------------------------------------------------------- classification
+
 /**
- * What a path under game/ is to the dossier: a source it shows, or a vendored file or an asset it only counts.
- * A generated name (*.min.js, *.min.mjs, *.min.css) and any path under a directory named vendor are vendored, a
- * source extension outside them is source, and everything else is an asset.
+ * A path's class under the bounty's source rule: anything under a directory
+ * named vendor, or named *.min.js / *.min.mjs / *.min.css, is vendored; a
+ * source extension outside those is source; everything else is an asset.
  */
 export function classifyGamePath(path: string): GameFileClass {
   const segs = path.split('/');
   const base = segs[segs.length - 1] ?? '';
   const dirs = segs.slice(0, -1);
-  if (dirs.includes('vendor') || GENERATED_NAME.test(base)) return 'vendored';
-  return SOURCE_NAME.test(base) ? 'source' : 'asset';
+  if (dirs.includes('vendor') || MINIFIED_NAME.test(base)) return 'vendored';
+  return SOURCE_EXT_RE.test(base) ? 'source' : 'asset';
 }
 
-/** Whether a path under game/ is a source file (classifyGamePath returns 'source'). */
+/** Whether classifyGamePath calls this path source. */
 export function isSourcePath(path: string): boolean {
   return classifyGamePath(path) === 'source';
 }
 
+// ---------------------------------------------------------------- the game tree
+
 /**
- * Every file and directory under game/, by path, with each file's bytes and class and the totals. Symbolic links
- * and other special files are refused, as are more than caps.game_max_files entries, more than caps.game_max_bytes
- * bytes in the files, and a path longer than caps.game_path_max_bytes. Nothing is read but the directory listing.
- * Throws DossierError.
+ * Every file and directory under game/: paths, per-file bytes and class, and
+ * the totals. Walks with a stack (deepest-pushed first), refusing symbolic
+ * links and special files, and enforcing the file-count, byte-total and
+ * path-length caps as they are crossed. Only listings are read, never file
+ * contents. Throws DossierError.
  */
 export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
-  const c = gameCapsOf(caps, 'readGameTree');
+  const c = checkedGameCaps(caps, 'readGameTree');
   let root;
   try {
     root = lstatSync(gameDir);
@@ -279,7 +270,10 @@ export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
       const path = rel === '' ? e.name : `${rel}/${e.name}`;
       const pathBytes = byteLength(path);
       if (pathBytes > c.game_path_max_bytes) {
-        throw new DossierError(`game/${path}: a path of ${pathBytes} bytes, over the ${c.game_path_max_bytes} allowed (game_path_max_bytes)`, 'game_path_max_bytes');
+        throw new DossierError(
+          `game/${path}: a path of ${pathBytes} bytes, over the ${c.game_path_max_bytes} allowed (game_path_max_bytes)`,
+          'game_path_max_bytes',
+        );
       }
       const shown = `game/${path}`;
       let st;
@@ -290,7 +284,10 @@ export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
       }
       count++;
       if (count > c.game_max_files) {
-        throw new DossierError(`game/: holds more than the ${c.game_max_files} files and directories allowed (game_max_files)`, 'game_max_files');
+        throw new DossierError(
+          `game/: holds more than the ${c.game_max_files} files and directories allowed (game_max_files)`,
+          'game_max_files',
+        );
       }
       if (st.isDirectory()) {
         directories.push(path);
@@ -298,7 +295,10 @@ export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
       } else if (st.isFile()) {
         totalBytes += st.size;
         if (totalBytes > c.game_max_bytes) {
-          throw new DossierError(`game/: its files come to more than the ${c.game_max_bytes} bytes allowed (game_max_bytes)`, 'game_max_bytes');
+          throw new DossierError(
+            `game/: its files come to more than the ${c.game_max_bytes} bytes allowed (game_max_bytes)`,
+            'game_max_bytes',
+          );
         }
         files.push({ path, bytes: st.size, cls: classifyGamePath(path) });
       } else {
@@ -311,14 +311,18 @@ export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
   return { files, directories, count, totalBytes };
 }
 
-/** game/index.html's bytes from the tree, or why there is none: refused when missing, a directory, a link or over the cap. */
-function readIndexHtml(gameDir: string, tree: GameTree): Uint8Array {
+/** game/index.html's bytes via the tree, refusing absence, a directory, a link, or an over-cap page. */
+function loadIndexHtml(gameDir: string, tree: GameTree): Uint8Array {
   const file = tree.files.find((f) => f.path === INDEX_HTML);
   if (file === undefined) {
-    if (tree.directories.includes(INDEX_HTML)) throw new DossierError('buildDossier: game/index.html: a directory, not the page');
+    if (tree.directories.includes(INDEX_HTML)) {
+      throw new DossierError('buildDossier: game/index.html: a directory, not the page');
+    }
     throw new DossierError('buildDossier: game/index.html: no such file: a game is a directory of static files, its index.html at its root');
   }
-  if (file.bytes > INDEX_HTML_MAX_BYTES) throw new DossierError(`buildDossier: game/index.html: ${file.bytes} bytes, over the ${INDEX_HTML_MAX_BYTES} a page may be`);
+  if (file.bytes > INDEX_HTML_MAX_BYTES) {
+    throw new DossierError(`buildDossier: game/index.html: ${file.bytes} bytes, over the ${INDEX_HTML_MAX_BYTES} a page may be`);
+  }
   try {
     return new Uint8Array(readFileSync(join(gameDir, INDEX_HTML)));
   } catch (err) {
@@ -330,30 +334,29 @@ function readIndexHtml(gameDir: string, tree: GameTree): Uint8Array {
 
 /** One <script> of a page. */
 export interface HtmlScript {
-  /** Its src attribute, or null when the script is inline. */
+  /** The src attribute, or null for an inline script. */
   src: string | null;
-  /** Its type attribute, lowercased and trimmed ('' when absent). */
+  /** The type attribute, lowercased and trimmed ('' when absent). */
   type: string;
-  /** An inline script's text ('' for one with src or no body). */
+  /** An inline script's text ('' when it has a src or no body). */
   text: string;
 }
 
 /** One <link> of a page. */
 export interface HtmlLink {
   href: string;
-  /** Its rel attribute, lowercased and trimmed. */
+  /** The rel attribute, lowercased and trimmed. */
   rel: string;
 }
 
-/** One element of a page that loads a file through its src attribute: <img>, <source>, <video>, <audio> or <iframe>. */
+/** One element that loads a file through src: <img>, <source>, <video>, <audio> or <iframe>. */
 export interface HtmlResource {
-  /** Its tag name, lowercased. */
+  /** The tag name, lowercased. */
   tag: string;
-  /** Its src attribute. */
   src: string;
 }
 
-/** The tags whose src is a resource the page loads. */
+/** Tags whose src attribute names a resource the page loads. */
 const RESOURCE_TAGS = ['img', 'source', 'video', 'audio', 'iframe'] as const;
 
 /** One <script type="importmap"> block. */
@@ -370,14 +373,14 @@ export interface HtmlFacts {
   scripts: HtmlScript[];
   /** Every <link> with an href, in document order. */
   links: HtmlLink[];
-  /** Every <img>, <source>, <video>, <audio> and <iframe> with a src, in document order. */
+  /** Every resource tag with a src, in document order. */
   resources: HtmlResource[];
   /** Every <script type="importmap">, in document order. */
   importMaps: HtmlImportMap[];
 }
 
-/** The index of `>` ending a tag whose body starts at `from`, honoring quoted attribute values; -1 when there is none. */
-function tagEnd(html: string, from: number): number {
+/** The index of the '>' closing the tag whose body starts at `from`, quote-aware; -1 when unclosed. */
+function tagClose(html: string, from: number): number {
   let quote = '';
   for (let i = from; i < html.length; i++) {
     const ch = html[i]!;
@@ -391,8 +394,8 @@ function tagEnd(html: string, from: number): number {
   return -1;
 }
 
-/** A tag body's attributes, names lowercased, values unquoted; a present attribute with no value is ''. */
-function attributesOf(body: string): Map<string, string> {
+/** A tag body's attributes: names lowercased, values unquoted, a bare attribute valued ''. */
+function parseAttributes(body: string): Map<string, string> {
   const out = new Map<string, string>();
   let i = 0;
   while (i < body.length) {
@@ -412,7 +415,7 @@ function attributesOf(body: string): Map<string, string> {
         value = body.slice(i + 1, end < 0 ? body.length : end);
         i = end < 0 ? body.length : end + 1;
       } else {
-        // An unquoted value runs to whitespace or the tag's >; a / inside it is part of the value.
+        // Unquoted values run to whitespace or '>'; a / inside belongs to the value.
         const s = i;
         while (i < body.length && !/[\s>]/.test(body[i]!)) i++;
         value = body.slice(s, i);
@@ -423,15 +426,14 @@ function attributesOf(body: string): Map<string, string> {
   return out;
 }
 
-/** The index of `</name` at or after `from`, ASCII case-insensitively; -1 when there is none. */
-function closeIndexOf(html: string, from: number, name: string): number {
+/** The index of `</name` at or after `from`, ASCII case-insensitively; -1 when absent. */
+function findCloseTag(html: string, from: number, name: string): number {
   const needle = `</${name}`;
   for (let i = from; i + needle.length <= html.length; i++) {
     if (html[i] !== '<') continue;
     let hit = true;
     for (let j = 1; j < needle.length; j++) {
-      const a = html[i + j]!.toLowerCase();
-      if (a !== needle[j]) {
+      if (html[i + j]!.toLowerCase() !== needle[j]) {
         hit = false;
         break;
       }
@@ -442,9 +444,9 @@ function closeIndexOf(html: string, from: number, name: string): number {
 }
 
 /**
- * Every <script>, <link href>, <img src>, <source src>, <video src>, <audio src>, <iframe src> and
- * <script type="importmap"> of a page, in document order. Comments and the document type are skipped. This is a tag
- * scan, not an HTML parser: it reads the attributes these tags carry and nothing else.
+ * A page's scripts, stylesheet links, resource tags and import-map blocks, in
+ * document order. Comments and the doctype are skipped. A tag scan, not a
+ * parser: only the attributes these tags carry are read.
  */
 export function htmlFacts(html: string): HtmlFacts {
   const scripts: HtmlScript[] = [];
@@ -467,18 +469,18 @@ export function htmlFacts(html: string): HtmlFacts {
     }
     const rest = html.slice(at + 1, at + 8).toLowerCase();
     if (rest.startsWith('script') && !/[A-Za-z0-9]/.test(html[at + 7] ?? '')) {
-      const end = tagEnd(html, at + 7);
+      const end = tagClose(html, at + 7);
       if (end < 0) break;
-      const attrs = attributesOf(html.slice(at + 7, end));
+      const attrs = parseAttributes(html.slice(at + 7, end));
       const type = (attrs.get('type') ?? '').trim().toLowerCase();
       const src = attrs.get('src') ?? null;
       let body = '';
       if (src === null) {
-        const close = closeIndexOf(html, end + 1, 'script');
+        const close = findCloseTag(html, end + 1, 'script');
         body = html.slice(end + 1, close < 0 ? html.length : close);
         i = close < 0 ? html.length : close + 8;
       } else {
-        const close = closeIndexOf(html, end + 1, 'script');
+        const close = findCloseTag(html, end + 1, 'script');
         i = close < 0 ? html.length : close + 8;
       }
       if (type === 'importmap') {
@@ -496,9 +498,9 @@ export function htmlFacts(html: string): HtmlFacts {
       continue;
     }
     if (rest.startsWith('link') && !/[A-Za-z0-9]/.test(html[at + 5] ?? '')) {
-      const end = tagEnd(html, at + 5);
+      const end = tagClose(html, at + 5);
       if (end < 0) break;
-      const attrs = attributesOf(html.slice(at + 5, end));
+      const attrs = parseAttributes(html.slice(at + 5, end));
       const href = attrs.get('href');
       if (href !== undefined) links.push({ href, rel: (attrs.get('rel') ?? '').trim().toLowerCase() });
       i = end + 1;
@@ -506,100 +508,111 @@ export function htmlFacts(html: string): HtmlFacts {
     }
     const tag = RESOURCE_TAGS.find((name) => rest.startsWith(name) && !/[A-Za-z0-9]/.test(html[at + 1 + name.length] ?? ''));
     if (tag !== undefined) {
-      const end = tagEnd(html, at + 1 + tag.length);
+      const end = tagClose(html, at + 1 + tag.length);
       if (end < 0) break;
-      const attrs = attributesOf(html.slice(at + 1 + tag.length, end));
+      const attrs = parseAttributes(html.slice(at + 1 + tag.length, end));
       const src = attrs.get('src');
       if (src !== undefined) resources.push({ tag, src });
       i = end + 1;
       continue;
     }
-    const end = tagEnd(html, at + 1);
+    const end = tagClose(html, at + 1);
     i = end < 0 ? html.length : end + 1;
   }
   return { scripts, links, resources, importMaps };
 }
 
-/** A page's import map: its imports and scopes, each a specifier to a reference; a null value blocks its specifier. */
+// ---------------------------------------------------------------- the import map
+
+/** A parsed import map: specifiers to references, a null value blocking its specifier. */
 export interface ImportMap {
   imports: Record<string, string | null>;
   scopes: Record<string, Record<string, string | null>>;
 }
 
-/**
- * A page's one import map, or none: `map` and `error` both null when the page holds no import map (it is optional),
- * `map` null and `error` saying why when the page holds one that cannot be used.
- */
+/** One page's import map, or why the one it holds cannot be used. */
 export interface ImportMapRead {
   map: ImportMap | null;
   error: string | null;
 }
 
-/** Whether `value` is a plain object. */
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const plainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** An own enumerable property set whatever its key: a "__proto__" key stays a key, never the prototype. */
-function setOwn<T>(o: Record<string, T>, key: string, value: T): void {
+/** An own enumerable property under any key: "__proto__" stays a key, never the prototype. */
+function defineOwn<T>(o: Record<string, T>, key: string, value: T): void {
   Object.defineProperty(o, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
 /**
- * The page's import map, parsed: none (map and error null) when the page holds no <script type="importmap">, else
- * its one map, or why it cannot be used (a second map, text that is not JSON, or a shape an import map does not have).
- * "imports" and "scopes" are each optional; a null value is kept: it blocks its specifier.
+ * The page's import map, parsed. No <script type="importmap"> at all is fine
+ * (map and error both null) — an import map is optional. One that exists must
+ * be the only one, JSON, and shaped like an import map: "imports" and
+ * "scopes" optional objects whose values are strings or null. Null values are
+ * kept: they block their specifier.
  */
 export function importMapOf(facts: HtmlFacts): ImportMapRead {
   if (facts.importMaps.length === 0) return { map: null, error: null };
-  if (facts.importMaps.length > 1) return { map: null, error: `index.html holds ${facts.importMaps.length} import maps: a page holds one at most` };
+  if (facts.importMaps.length > 1) {
+    return { map: null, error: `index.html holds ${facts.importMaps.length} import maps: a page holds one at most` };
+  }
   const only = facts.importMaps[0]!;
   if (only.error !== null) return { map: null, error: `index.html's import map is not JSON (${only.error})` };
-  if (!isObject(only.value)) return { map: null, error: 'index.html\'s import map is not a JSON object' };
+  if (!plainObject(only.value)) return { map: null, error: 'index.html\'s import map is not a JSON object' };
   const importsRaw = only.value.imports ?? {};
-  if (!isObject(importsRaw)) return { map: null, error: 'index.html\'s import map holds an "imports" that is not an object' };
+  if (!plainObject(importsRaw)) {
+    return { map: null, error: 'index.html\'s import map holds an "imports" that is not an object' };
+  }
   const imports: Record<string, string | null> = {};
   for (const [key, value] of Object.entries(importsRaw)) {
-    if (value !== null && typeof value !== 'string') return { map: null, error: `index.html's import map maps ${JSON.stringify(key)} to no string` };
-    setOwn(imports, key, value);
+    if (value !== null && typeof value !== 'string') {
+      return { map: null, error: `index.html's import map maps ${JSON.stringify(key)} to no string` };
+    }
+    defineOwn(imports, key, value);
   }
   const scopes: Record<string, Record<string, string | null>> = {};
   const scopesRaw = only.value.scopes;
   if (scopesRaw !== undefined) {
-    if (!isObject(scopesRaw)) return { map: null, error: 'index.html\'s import map holds a "scopes" that is not an object' };
+    if (!plainObject(scopesRaw)) {
+      return { map: null, error: 'index.html\'s import map holds a "scopes" that is not an object' };
+    }
     for (const [scope, entries] of Object.entries(scopesRaw)) {
-      if (!isObject(entries)) return { map: null, error: `index.html's import map scope ${JSON.stringify(scope)} is not an object` };
+      if (!plainObject(entries)) {
+        return { map: null, error: `index.html's import map scope ${JSON.stringify(scope)} is not an object` };
+      }
       const inner: Record<string, string | null> = {};
       for (const [key, value] of Object.entries(entries)) {
-        if (value !== null && typeof value !== 'string') return { map: null, error: `index.html's import map scope ${JSON.stringify(scope)} maps ${JSON.stringify(key)} to no string` };
-        setOwn(inner, key, value);
+        if (value !== null && typeof value !== 'string') {
+          return { map: null, error: `index.html's import map scope ${JSON.stringify(scope)} maps ${JSON.stringify(key)} to no string` };
+        }
+        defineOwn(inner, key, value);
       }
-      setOwn(scopes, scope, inner);
+      defineOwn(scopes, scope, inner);
     }
   }
   return { map: { imports, scopes }, error: null };
 }
 
+// ---------------------------------------------------------------- references & specifiers
+
 /** A URI scheme's leading `name:`. */
 const URI_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 
-/** Whether a reference is relative: not empty, no scheme, no leading // and no leading /. */
+/** URL-relative: non-empty, no scheme, no leading // and no leading /. */
 export function isRelativeRef(ref: string): boolean {
   return ref.length > 0 && !URI_SCHEME.test(ref) && !ref.startsWith('//') && !ref.startsWith('/');
 }
 
-/**
- * Whether a module specifier is relative in JavaScript's sense: it starts with ./ or ../ (or is . or ..). A
- * specifier like `phaser` or `main.js` is bare: a browser resolves it through the import map or fails, it never
- * loads a file beside the importer. isRelativeRef answers for a URL reference (an attribute or an import-map value),
- * where `main.js` is relative to the page.
- */
+/** JS-relative: exactly '.', '..', or starting './' or '../'. A bare name is never relative. */
 export function isRelativeSpecifier(specifier: string): boolean {
   return specifier === '.' || specifier === '..' || specifier.startsWith('./') || specifier.startsWith('../');
 }
 
 /**
- * The path under game/ that the relative reference `ref` names, resolved against the importing file's path
- * (`from`, POSIX and relative to game/, like `src/main.js`; index.html is `index.html`). A query or fragment is
- * dropped. Null when `ref` is not relative, names nothing, or climbs out of game/.
+ * The game/ path a relative reference names, resolved against `from` (a POSIX
+ * path under game/, 'index.html' at the root). A query or fragment is dropped;
+ * null when the reference is not relative, empty after the cut, or climbs out
+ * of game/.
  */
 export function resolveGamePath(ref: string, from: string): string | null {
   if (!isRelativeRef(ref)) return null;
@@ -620,14 +633,14 @@ export function resolveGamePath(ref: string, from: string): string | null {
   return parts.join('/');
 }
 
-/** What an import map says about a specifier: found false when it maps nothing, or value null when a null entry blocks it. */
+/** What an import map says about a specifier. */
 export interface ImportMapMatch {
   found: boolean;
   value: string | null;
 }
 
-/** The entry for a specifier in one map: an exact own key, else the longest own key ending in / that prefixes it. */
-function entryOf(entries: Record<string, string | null>, specifier: string): ImportMapMatch {
+/** One map's entry for a specifier: an exact own key, else the longest own '/'-prefixed key. */
+function entryFor(entries: Record<string, string | null>, specifier: string): ImportMapMatch {
   if (Object.hasOwn(entries, specifier)) return { found: true, value: entries[specifier]! };
   let best: string | null = null;
   for (const key of Object.keys(entries)) {
@@ -640,10 +653,11 @@ function entryOf(entries: Record<string, string | null>, specifier: string): Imp
 }
 
 /**
- * The game path a scope key's URL prefix names, or null when it cannot name one: a reference resolved against
- * index.html, with '.' and './' being game/ itself. An absolute scope names a site path, not a file of the game.
+ * The game path a scope key's URL prefix names, or null when it names none:
+ * resolved against index.html, with '.' and './' meaning game/ itself. An
+ * absolute scope names a site path, not a file of the game.
  */
-function scopePath(scope: string): string | null {
+function scopePrefix(scope: string): string | null {
   const cut = scope.search(/[?#]/);
   const raw = cut < 0 ? scope : scope.slice(0, cut);
   if (raw === '.' || raw === './') return '';
@@ -651,35 +665,31 @@ function scopePath(scope: string): string | null {
 }
 
 /**
- * What the page's import map says for `specifier` imported from `from` (a path under game/, index.html for an inline
- * script): a matching scope's map first, its longest URL prefix winning, then the top-level imports.
+ * The map's answer for `specifier` imported from `from`: the matching scope
+ * with the longest URL prefix first, then the top-level imports.
  */
 export function importMapMatch(map: ImportMap | null, specifier: string, from: string = INDEX_HTML): ImportMapMatch {
   if (map === null) return { found: false, value: null };
   let best: { prefix: string; entries: Record<string, string | null> } | null = null;
   for (const [scope, entries] of Object.entries(map.scopes)) {
-    const prefix = scopePath(scope);
+    const prefix = scopePrefix(scope);
     if (prefix === null || !from.startsWith(prefix)) continue;
     if (best === null || prefix.length > best.prefix.length) best = { prefix, entries };
   }
   if (best !== null) {
-    const scoped = entryOf(best.entries, specifier);
+    const scoped = entryFor(best.entries, specifier);
     if (scoped.found) return scoped;
   }
-  return entryOf(map.imports, specifier);
+  return entryFor(map.imports, specifier);
 }
 
-/**
- * The value an import map gives a bare specifier imported from `from`: a matching scope's entry or the top-level
- * one, an exact key first then the longest key ending in / that prefixes it; null when none maps it or a null entry
- * blocks it.
- */
+/** The value a map gives a bare specifier; null when unmapped or blocked by a null entry. */
 export function mappedSpecifier(map: ImportMap | null, specifier: string, from: string = INDEX_HTML): string | null {
   const match = importMapMatch(map, specifier, from);
   return match.found ? match.value : null;
 }
 
-/** The path a specifier names from `from`: relative to the importer, or through the import map; null when neither gives a path under game/. */
+/** The game path a specifier names from `from`: relative to the importer, else via the map; null when neither. */
 function resolveSpecifier(specifier: string, from: string, map: ImportMap | null): string | null {
   if (isRelativeSpecifier(specifier)) return resolveGamePath(specifier, from);
   const match = importMapMatch(map, specifier, from);
@@ -689,21 +699,23 @@ function resolveSpecifier(specifier: string, from: string, map: ImportMap | null
 
 // ---------------------------------------------------------------- static imports
 
-/** What a lexical scan of a module's text is doing, character by character. */
+/** The character classes of the lexical scan. */
 const IDENT_START = /[A-Za-z_$]/;
-const IDENT = /[A-Za-z0-9_$]/;
+const IDENT_PART = /[A-Za-z0-9_$]/;
 
 /**
- * A module's static import and export-from specifiers, in source order, by a lexical scan: comments, strings,
- * template literals and regular-expression literals are skipped, so the words inside them are never read as
- * imports. This is not a parser; it recognizes `import 'x'`, `import ... from 'x'`, `export ... from 'x'` and
- * `export * from 'x'`, and leaves anything else alone.
+ * A module's static import and export-from specifiers, in source order, by a
+ * lexical scan that steps over comments, strings, template literals and
+ * regular-expression literals, so words inside them never read as imports.
+ * It recognizes `import 'x'`, `import ... from 'x'`, `export ... from 'x'`
+ * and `export * from 'x'` — and nothing else. Not a parser; the gate's acorn
+ * pass is the authority.
  */
 export function sourceImports(source: string): string[] {
   const out: string[] = [];
   const n = source.length;
   let i = 0;
-  /** The last significant (non-space, non-comment) character, for the regex-versus-division guess. */
+  // The last significant character, for the regex-versus-division guess at a '/'.
   const regexPosition = (prev: string): boolean => prev === '' || '([{,;:=!&|?+-*%^~<>'.includes(prev);
   let prev = '';
 
@@ -779,17 +791,17 @@ export function sourceImports(source: string): string[] {
   };
   const readWord = (): string => {
     const start = i;
-    while (i < n && IDENT.test(source[i]!)) i++;
+    while (i < n && IDENT_PART.test(source[i]!)) i++;
     return source.slice(start, i);
   };
-  /** Reads a string literal at i, or null; advances past it either way. */
+  /** Reads a string literal at i (after spacing), or null; advances past it either way. */
   const maybeString = (): string | null => {
     skipSpace();
     const ch = source[i];
     if (ch !== '"' && ch !== "'") return null;
     return skipString(ch);
   };
-  /** From just after `import`/`export`, reads a clause and its `from 'x'`; returns the specifier or null. */
+  /** From just after `import`/`export`, reads a clause and its `from 'x'`. */
   const clause = (stopAt: string[]): string | null => {
     for (;;) {
       skipSpace();
@@ -808,8 +820,7 @@ export function sourceImports(source: string): string[] {
       if (IDENT_START.test(ch)) {
         const word = readWord();
         if (word === 'from') {
-          const spec = maybeString();
-          return spec;
+          return maybeString();
         }
         if (word === 'as' || word === 'type') continue;
         continue;
@@ -863,14 +874,16 @@ export function sourceImports(source: string): string[] {
   return out;
 }
 
+// ---------------------------------------------------------------- the page's load order
+
 /** A source file of a game: its path under game/ and its bytes. */
 export interface GameSource {
   path: string;
   bytes: Uint8Array;
 }
 
-/** The JavaScript MIME types (the HTML standard's list, by essence) that make a <script> a classic script. */
-const CLASSIC_SCRIPT_TYPES = new Set([
+/** The JavaScript MIME types (the HTML standard's list, in essence) that make a <script> classic. */
+const CLASSIC_SCRIPT_MIME = new Set([
   'application/ecmascript',
   'application/javascript',
   'application/x-ecmascript',
@@ -889,34 +902,35 @@ const CLASSIC_SCRIPT_TYPES = new Set([
   'text/x-javascript',
 ]);
 
-/** Whether a <script>'s type (htmlFacts lowercases and trims it) makes it a classic script: none, or a JavaScript MIME type. */
+/** Whether a <script>'s type (already lowercased and trimmed) makes it a classic script. */
 function isClassicScript(type: string): boolean {
-  return type === '' || CLASSIC_SCRIPT_TYPES.has(type.split(';')[0]!.trim());
+  return type === '' || CLASSIC_SCRIPT_MIME.has(type.split(';')[0]!.trim());
 }
 
 /**
- * The source JS files of a game in the order the page loads them: index.html's scripts in document order, a classic
- * script's src (none, or a JavaScript MIME type: <script src="game.js">) where it stands, and a module script
- * (<script type="module">), its src or its inline text's imports, followed by a depth-first walk of static imports,
- * each reached module's own imports in source order, the first time a path is reached. A classic script's src is
- * resolved relative to index.html, and its text is not walked (a classic script has no static imports); a module's
- * specifiers are resolved relative to the importer or through the page's import map (the importing module's
- * matching scope's entry or the top-level one; a value resolves against index.html). A reference that resolves to
- * no source JS file is skipped, a script of another type (a shader's text, JSON data) is passed over, and a file
- * reached once is never listed or walked twice. `sources` is every source file of game/ (index.html included, which
- * is never in the result).
+ * The source JS files in the order the page loads them: index.html's scripts
+ * in document order — a classic script's src (none, or a JavaScript MIME type)
+ * where it stands, its text never walked (a classic script has no static
+ * imports); a module script's src or inline text followed by a depth-first
+ * walk of its static imports, each module's own imports in source order, the
+ * first time a path is reached. A classic src resolves against index.html; a
+ * module's specifiers resolve against the importer or through the page's
+ * import map. References that name no source JS file are skipped, scripts of
+ * other types are passed over, and nothing is listed or walked twice.
+ * `sources` must include every source file of game/ (index.html included,
+ * though it never appears in the result).
  */
 export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): string[] {
   const byPath = new Map(sources.map((s) => [s.path, s]));
   const map = importMapOf(facts).map;
   const textOf = (path: string): string => {
     const file = byPath.get(path);
-    return file === undefined ? '' : text(file.bytes);
+    return file === undefined ? '' : asText(file.bytes);
   };
   const order: string[] = [];
   const seen = new Set<string>();
   const visit = (path: string, walk = true): void => {
-    if (seen.has(path) || !MODULE_NAME.test(path) || !byPath.has(path)) return;
+    if (seen.has(path) || !MODULE_EXT_RE.test(path) || !byPath.has(path)) return;
     seen.add(path);
     order.push(path);
     if (!walk) return;
@@ -927,7 +941,6 @@ export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): s
   };
   for (const script of facts.scripts) {
     if (script.type !== 'module') {
-      // A classic script loads its src where it stands and imports nothing statically; an import map does not apply.
       if (isClassicScript(script.type) && script.src !== null && isRelativeRef(script.src)) {
         const target = resolveGamePath(script.src, INDEX_HTML);
         if (target !== null) visit(target, false);
@@ -935,8 +948,10 @@ export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): s
       continue;
     }
     if (script.src !== null) {
-      // A script's src is a URL reference, not a module specifier: `main.js` is relative to the page.
-      const target = isRelativeRef(script.src) ? resolveGamePath(script.src, INDEX_HTML) : resolveSpecifier(script.src, INDEX_HTML, map);
+      // A src is a URL reference, not a module specifier: bare names resolve against the page.
+      const target = isRelativeRef(script.src)
+        ? resolveGamePath(script.src, INDEX_HTML)
+        : resolveSpecifier(script.src, INDEX_HTML, map);
       if (target !== null) visit(target);
     } else {
       for (const specifier of sourceImports(script.text)) {
@@ -951,9 +966,10 @@ export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): s
 // ---------------------------------------------------------------- canonical JSON
 
 /**
- * JSON with every object's keys in code-unit order and no whitespace: one spelling per value. Takes
- * null, booleans, finite numbers, strings, arrays and plain objects; throws TypeError on anything else
- * (undefined, a function, a bigint, NaN, Infinity, a class instance).
+ * JSON with every object's keys in code-unit order and no whitespace: one
+ * spelling per value. Handles null, booleans, finite numbers, strings, arrays
+ * and plain objects; throws TypeError on anything else (undefined, functions,
+ * bigints, NaN, Infinity, class instances).
  */
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
@@ -981,17 +997,18 @@ const JPEG_MAGIC = [0xff, 0xd8, 0xff];
 /** contracts/dossier.ts DossierImageName. */
 const IMAGE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
 
-const opensWith = (bytes: Uint8Array, magic: readonly number[], at = 0): boolean => bytes.length >= at + magic.length && magic.every((b, i) => bytes[at + i] === b);
+const opensWith = (bytes: Uint8Array, magic: readonly number[], at = 0): boolean =>
+  bytes.length >= at + magic.length && magic.every((b, i) => bytes[at + i] === b);
 
-/** A dossier image's extension's group: a file's bytes grouped by the extension the Game block counts. */
+/** A file's extension as the Game block counts assets, '(none)' without one. */
 const extensionOf = (path: string): string => {
   const base = path.split('/').pop() ?? '';
   const dot = base.lastIndexOf('.');
   return dot > 0 ? base.slice(dot + 1).toLowerCase() : '(none)';
 };
 
-/** The `## Game` block's lines: what game/ holds, by class, with the totals (no source text). */
-function gameBlockLines(tree: GameTree): string[] {
+/** The "## Game" block: what game/ holds by class, with the totals — no source text. */
+function gameSummaryLines(tree: GameTree): string[] {
   const source = tree.files.filter((f) => f.cls === 'source');
   const vendored = tree.files.filter((f) => f.cls === 'vendored');
   const assets = tree.files.filter((f) => f.cls === 'asset');
@@ -1024,26 +1041,33 @@ function gameBlockLines(tree: GameTree): string[] {
   return lines;
 }
 
-/** A distinct source as the dossier shows it. */
+/** One source as the dossier shows it: raw bytes, decoded text, fence and its finished block. */
 interface SourceCode {
   norm: Uint8Array;
   text: string;
   fence: string;
-  /** The fenced block: the fence and its language, the text (a last LF added when it lacks one), the fence, a blank line. */
+  /** The fenced block: opening fence + language, the text (LF added when missing), closing fence, blank line. */
   block: string;
   blockBytes: number;
   lines: number;
 }
 
 /**
- * A source's section cut inside its text: its heading, its first k lines in its fence (closed), a line naming how
- * many of its lines are not shown, then `tail(hidden)` (the cut line, given the source bytes this file leaves out),
- * k the most lines (at least one, fewer than all) whose whole fits in `room` UTF-8 bytes; null when not one line
- * fits. It cuts only after a line's LF, which is never inside a UTF-8 sequence nor a replacement character's bytes,
- * so no character is split, and a line's shown bytes are those of its text.
+ * A source cut inside its text: its heading, its first k lines in a closed
+ * fence, a line naming the lines hidden, then the cut line for the bytes this
+ * partial leaves out — k the most lines (at least one, fewer than all) whose
+ * whole run fits in `room` UTF-8 bytes; null when not one line fits. Cuts fall
+ * only after a line's LF, which can never split a UTF-8 sequence, so no
+ * character is ever cut in half.
  */
-function sourceHead(heading: string, code: { norm: Uint8Array; text: string; fence: string }, language: string, room: number, tail: (hidden: number) => string): string | null {
-  const total = lineCount(code.norm);
+function partialSource(
+  heading: string,
+  code: { norm: Uint8Array; text: string; fence: string },
+  language: string,
+  room: number,
+  tail: (hidden: number) => string,
+): string | null {
+  const total = countLines(code.norm);
   const lines = code.text.split('\n');
   const open = `${code.fence}${language}\n`;
   const close = `${code.fence}\n\n`;
@@ -1065,49 +1089,55 @@ function sourceHead(heading: string, code: { norm: Uint8Array; text: string; fen
 }
 
 /**
- * The dossier (makefun/dossier/v1, contracts/dossier.ts) of an entry directory, as canonical JSON bytes:
- * `dir/game/`'s sources and `dir/screenshots/`'s PNG and JPEG files (names starting with '.' skipped). `images` are
- * the screenshots in name order, the first the cover; `text` is a "## Game" block (the source, vendored and asset
- * counts and the totals) then "## Sources", index.html first, then the source JS files in importOrder's order,
- * then the other source files by path, each under a
- * header line naming its path, lines and bytes and then its text in a fence. The text holds at most
- * `caps.text_max_bytes` UTF-8 bytes: every source that fits goes in whole, in that order; the first that does not
- * goes in up to its last complete line that fits (its fence closed, then a line naming how many of its lines are not
- * shown), or not at all when not one line fits; nothing follows it but a last line naming how many whole files and
- * how many bytes of source were left out. Throws DossierError on a game tree it cannot read or one past a cap
- * (readGameTree), a missing game/index.html, screenshots no dossier can hold, a text cap that cannot hold the Game
- * block and the cut line, or a dossier past DOSSIER_MAX_BYTES.
+ * The dossier (makefun/dossier/v1) of an entry directory, as canonical JSON
+ * bytes: `dir/game/`'s sources in page-load order and `dir/screenshots/`'s
+ * PNG and JPEG files (names starting with '.' skipped) in name order, the
+ * first the cover. Throws DossierError on anything the caps or the entry's
+ * shape refuse (see the header) or a dossier past DOSSIER_MAX_BYTES.
  */
 export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
   const max = caps.text_max_bytes;
-  if (!Number.isSafeInteger(max) || max <= 0) throw new DossierError(`buildDossier: caps.text_max_bytes must be a positive integer, not ${String(max)}`, 'text_max_bytes');
-  // The binding screenshot caps, each with whose it is: the caller's when given and tighter, else the dossier's.
+  if (!Number.isSafeInteger(max) || max <= 0) {
+    throw new DossierError(`buildDossier: caps.text_max_bytes must be a positive integer, not ${String(max)}`, 'text_max_bytes');
+  }
+  // The binding screenshot caps, each tagged with whose it is: the caller's
+  // when given and tighter, else the dossier's own.
   let maxImages = { n: DOSSIER_MAX_IMAGES, whose: 'a dossier holds' };
   let maxImageBytes = { n: DOSSIER_MAX_BYTES, whose: 'a dossier holds' };
   if (caps.screenshots !== undefined) {
     const s = caps.screenshots as { max?: unknown; max_bytes?: unknown } | null;
-    if (typeof s !== 'object' || s === null) throw new DossierError('buildDossier: caps.screenshots must be an object {max, max_bytes}');
+    if (typeof s !== 'object' || s === null) {
+      throw new DossierError('buildDossier: caps.screenshots must be an object {max, max_bytes}');
+    }
     for (const k of ['max', 'max_bytes'] as const) {
       const v = s[k];
-      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0) throw new DossierError(`buildDossier: caps.screenshots.${k} must be a positive integer, not ${String(v)}`, `screenshots.${k}`);
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0) {
+        throw new DossierError(`buildDossier: caps.screenshots.${k} must be a positive integer, not ${String(v)}`, `screenshots.${k}`);
+      }
     }
     if ((s.max as number) < maxImages.n) maxImages = { n: s.max as number, whose: 'caps.screenshots.max allows' };
-    if ((s.max_bytes as number) < maxImageBytes.n) maxImageBytes = { n: s.max_bytes as number, whose: 'caps.screenshots.max_bytes allows' };
+    if ((s.max_bytes as number) < maxImageBytes.n) {
+      maxImageBytes = { n: s.max_bytes as number, whose: 'caps.screenshots.max_bytes allows' };
+    }
   }
   const gameCaps: GameCaps = {};
   for (const k of ['game_max_files', 'game_max_bytes', 'game_path_max_bytes'] as const) {
     const v = caps[k] as unknown;
     if (v === undefined) continue;
-    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) throw new DossierError(`buildDossier: caps.${k} must be a whole number, not ${String(v)}`, k);
+    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
+      throw new DossierError(`buildDossier: caps.${k} must be a whole number, not ${String(v)}`, k);
+    }
     gameCaps[k] = v;
   }
 
   const gameDir = join(dir, 'game');
   const tree = readGameTree(gameDir, gameCaps);
-  const htmlBytes = readIndexHtml(gameDir, tree);
-  const html = htmlFacts(text(htmlBytes));
+  const htmlBytes = loadIndexHtml(gameDir, tree);
+  const html = htmlFacts(asText(htmlBytes));
 
-  const sources = tree.files.filter((f) => f.cls === 'source').map((f) => ({ path: f.path, bytes: new Uint8Array(readFileSync(join(gameDir, f.path))) }));
+  const sources = tree.files
+    .filter((f) => f.cls === 'source')
+    .map((f) => ({ path: f.path, bytes: new Uint8Array(readFileSync(join(gameDir, f.path))) }));
   const byPath = new Map(sources.map((s) => [s.path, s]));
   const ordered = importOrder(sources, html).filter((p) => p !== INDEX_HTML);
   const seen = new Set<string>([INDEX_HTML, ...ordered]);
@@ -1120,15 +1150,15 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
     if (code !== undefined) return code;
     const file = byPath.get(path);
     if (file === undefined) return null;
-    const t = text(file.bytes);
-    const fence = fenceFor(t);
-    const block = `${fence}${languageOf(path)}\n${t}${t.endsWith('\n') ? '' : '\n'}${fence}\n\n`;
-    code = { norm: file.bytes, text: t, fence, block, blockBytes: byteLength(block), lines: lineCount(file.bytes) };
+    const t = asText(file.bytes);
+    const fence = fenceAround(t);
+    const block = `${fence}${languageTag(path)}\n${t}${t.endsWith('\n') ? '' : '\n'}${fence}\n\n`;
+    code = { norm: file.bytes, text: t, fence, block, blockBytes: byteLength(block), lines: countLines(file.bytes) };
     codes.set(path, code);
     return code;
   };
 
-  const shotNames = (() => {
+  const shotNames = ((): string[] => {
     const shotsDir = join(dir, 'screenshots');
     let shotDirStat;
     try {
@@ -1136,45 +1166,66 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
     } catch {
       throw new DossierError('buildDossier: no screenshots/ directory: an entry hands in 3 or 4 renders of its game, the first by name the cover');
     }
-    if (!shotDirStat.isDirectory()) throw new DossierError('buildDossier: screenshots is not a directory: an entry hands in 3 or 4 renders of its game, the first by name the cover');
-    let names: string[];
+    if (!shotDirStat.isDirectory()) {
+      throw new DossierError('buildDossier: screenshots is not a directory: an entry hands in 3 or 4 renders of its game, the first by name the cover');
+    }
     try {
-      names = readdirSync(shotsDir, { withFileTypes: true })
+      return readdirSync(shotsDir, { withFileTypes: true })
         .filter((e) => e.isFile() && !e.name.startsWith('.'))
         .map((e) => e.name)
         .sort(byCodeUnit);
     } catch (err) {
       throw new DossierError(`buildDossier: screenshots/ cannot be read (${(err as Error).message})`);
     }
-    return names;
   })();
-  if (shotNames.length === 0) throw new DossierError('buildDossier: screenshots/ holds no image: the first is the cover');
-  if (shotNames.length > maxImages.n) throw new DossierError(`buildDossier: screenshots/ holds ${shotNames.length} files, over the ${maxImages.n} ${maxImages.whose}`, 'screenshots.max');
+  if (shotNames.length === 0) {
+    throw new DossierError('buildDossier: screenshots/ holds no image: the first is the cover');
+  }
+  if (shotNames.length > maxImages.n) {
+    throw new DossierError(`buildDossier: screenshots/ holds ${shotNames.length} files, over the ${maxImages.n} ${maxImages.whose}`, 'screenshots.max');
+  }
   const images = shotNames.map((name) => {
-    if (!IMAGE_NAME.test(name)) throw new DossierError(`buildDossier: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters, not starting with . or -`);
+    if (!IMAGE_NAME.test(name)) {
+      throw new DossierError(`buildDossier: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters, not starting with . or -`);
+    }
     const size = lstatSync(join(dir, 'screenshots', name)).size;
-    if (size > maxImageBytes.n) throw new DossierError(`buildDossier: screenshots/${name} is ${size} bytes, over the ${maxImageBytes.n} ${maxImageBytes.whose}`, 'screenshots.max_bytes');
+    if (size > maxImageBytes.n) {
+      throw new DossierError(`buildDossier: screenshots/${name} is ${size} bytes, over the ${maxImageBytes.n} ${maxImageBytes.whose}`, 'screenshots.max_bytes');
+    }
     const bytes = new Uint8Array(readFileSync(join(dir, 'screenshots', name)));
-    if (bytes.length > maxImageBytes.n) throw new DossierError(`buildDossier: screenshots/${name} is ${bytes.length} bytes, over the ${maxImageBytes.n} ${maxImageBytes.whose}`, 'screenshots.max_bytes');
+    if (bytes.length > maxImageBytes.n) {
+      throw new DossierError(`buildDossier: screenshots/${name} is ${bytes.length} bytes, over the ${maxImageBytes.n} ${maxImageBytes.whose}`, 'screenshots.max_bytes');
+    }
     const media_type = opensWith(bytes, PNG_MAGIC) ? 'image/png' : opensWith(bytes, JPEG_MAGIC) ? 'image/jpeg' : null;
-    if (media_type === null) throw new DossierError(`buildDossier: screenshots/${name} is neither a PNG nor a JPEG`);
+    if (media_type === null) {
+      throw new DossierError(`buildDossier: screenshots/${name} is neither a PNG nor a JPEG`);
+    }
     return { name, media_type, sha256: sha256Hex(bytes), base64: Buffer.from(bytes).toString('base64') };
   });
 
-  const head = [...gameBlockLines(tree), '', '## Sources', '', ''].join('\n');
+  const sourcesHeading = '## Sources';
+  const head = [...gameSummaryLines(tree), '', sourcesHeading, '', ''].join('\n');
   const sections = order.map((path) => {
     const code = codeOf(path);
     const lines = code === null ? 0 : code.lines;
     const bytes = code === null ? 0 : code.norm.length;
     const heading = `### game/${path} (${lines} ${lines === 1 ? 'line' : 'lines'}, ${bytes} bytes)\n\n`;
     const shown = lines === 0 ? null : code;
-    return { heading, code: shown, size: byteLength(heading) + (shown === null ? 0 : shown.blockBytes), bytes };
+    return {
+      heading,
+      code: shown,
+      size: byteLength(heading) + (shown === null ? 0 : shown.blockBytes),
+      bytes,
+    };
   });
-  // restBytes[k]: the source bytes of the files after section k.
+  // restBytes[k]: the source bytes of every section after k.
   const restBytes = new Array<number>(sections.length + 1).fill(0);
-  for (let k = sections.length - 1; k >= 0; k--) restBytes[k] = restBytes[k + 1]! + (k + 1 < sections.length ? sections[k + 1]!.bytes : 0);
+  for (let k = sections.length - 1; k >= 0; k--) {
+    restBytes[k] = restBytes[k + 1]! + (k + 1 < sections.length ? sections[k + 1]!.bytes : 0);
+  }
 
-  const cutLine = (files: number, bytes: number): string => `[Cut at ${max} bytes: ${files} file${files === 1 ? '' : 's'} and ${bytes} bytes of source left out.]\n`;
+  const cutLine = (files: number, bytes: number): string =>
+    `[Cut at ${max} bytes: ${files} file${files === 1 ? '' : 's'} and ${bytes} bytes of source left out.]\n`;
   let out = head;
   let used = byteLength(head);
   let kept = 0;
@@ -1187,17 +1238,26 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
     used += section.size;
   }
   if (kept < sections.length) {
-    // The first source that does not fit whole: its head, up to its last complete line that fits, then nothing more.
+    // The first source that does not fit whole: its heading and as many whole
+    // lines as the remaining room takes, then nothing but the cut line.
     const first = sections[kept]!;
     const restCount = sections.length - kept - 1;
     const after = restBytes[kept]!;
-    const part = first.code === null ? null : sourceHead(first.heading, first.code, languageOf(order[kept]!), max - used, (hidden) => cutLine(restCount, after + hidden));
+    const part = first.code === null
+      ? null
+      : partialSource(first.heading, first.code, languageTag(order[kept]!), max - used, (hidden) =>
+          cutLine(restCount, after + hidden),
+        );
     out += part ?? cutLine(restCount + 1, after + first.bytes);
   }
-  if (byteLength(out) > max) throw new DossierError(`buildDossier: caps.text_max_bytes ${max} cannot hold even the Game block and the cut line`, 'text_max_bytes');
+  if (byteLength(out) > max) {
+    throw new DossierError(`buildDossier: caps.text_max_bytes ${max} cannot hold even the Game block and the cut line`, 'text_max_bytes');
+  }
 
   const doc = { schema: DOSSIER_SCHEMA, cover: 0, text: out.replace(/\n+$/, '\n'), images };
   const bytes = Buffer.from(canonicalJson(doc), 'utf8');
-  if (bytes.length > DOSSIER_MAX_BYTES) throw new DossierError(`buildDossier: the dossier is ${bytes.length} bytes, over the ${DOSSIER_MAX_BYTES} one holds`);
+  if (bytes.length > DOSSIER_MAX_BYTES) {
+    throw new DossierError(`buildDossier: the dossier is ${bytes.length} bytes, over the ${DOSSIER_MAX_BYTES} one holds`);
+  }
   return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
 }

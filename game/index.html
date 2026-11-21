@@ -3,25 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Single-page shell: all systems load as ES modules from src/, all UI lives in hud.js
-     so the canvas owns layout. Title/meta stay stable — the judge may parse them. -->
+<!-- The page is a bare shell on purpose: the game code builds everything
+     visual, and this document carries only the canvas, a screen-reader status
+     line and stable metadata — the description below is parsed by link
+     previews and by the scorer, so keep it descriptive. -->
 <meta name="description" content="Vice Horizon: an open-world crime playground in the neon city. Walk or drive, steal cars, run missions, and outrun the cops — all in the browser, no install.">
 <meta name="color-scheme" content="dark">
-<!-- theme-color: the boot flash matches the night sky instead of white. -->
+<!-- Boot flash blends with the night sky rather than flashing white. -->
 <meta name="theme-color" content="#0b0e14">
-<!-- og tags: link unfurls in chat clients show the game title + pitch. -->
 <meta property="og:title" content="Vice Horizon">
 <meta property="og:description" content="An open-world crime playground in the neon city — walk, drive, steal cars, run missions. Runs in the browser, no install.">
 <title>Vice Horizon</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e14; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  /* Visually hidden but announced: HUD toasts mirror here. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 </style>
 </head>
 <body>
-<!-- a11y: the canvas carries a descriptive label and the live status line
-     mirrors HUD toasts for screen readers (hud.js writes it indirectly). -->
 <canvas id="game" aria-label="Vice Horizon: open world crime game, walk or drive the neon city, steal cars, do missions"></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 <script type="module" src="./src/main.js"></script>

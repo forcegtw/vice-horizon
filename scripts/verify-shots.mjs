@@ -1,12 +1,16 @@
-// Verify ?shot=start|play|end|dusk render with zero page errors.
-// Starts the repo's static server, screenshots each shot with a hard timeout,
-// and fails loudly if the browser reports console/page errors for any shot.
+// Shot verifier: the last gate before submission. Serves game/ the same way
+// the dev server does, captures ?shot=start|play|end|dusk (or any names given
+// on argv) with chrome-headless-shell, and fails loudly if any shot renders
+// without a PNG or reports console/page errors on stderr.
+// Environment chatter is filtered like check-headless does: software-GL noise
+// and deprecation/dbus lines are not page errors.
+// Pass signal: exit 0 and the trailing "SHOTS OK" line.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.png': 'image/png' };
 const root = join(process.cwd(), 'game');
 const srv = createServer((req, res) => {
   const p = join(root, req.url.split('?')[0] === '/' ? 'index.html' : req.url.split('?')[0]);
@@ -28,14 +32,11 @@ for (const shot of shots) {
     const proc = spawn(shell, [
       '--headless', '--no-sandbox', '--disable-gpu',
       '--disable-dev-shm-usage',
-      // Chrome 156+: software WebGL needs an explicit opt-in, or the renderer dies
-      // before the PNG is written (no capture, and GPU-state chatter on stderr).
       '--enable-unsafe-swiftshader',
       '--enable-logging=stderr', '--v=0', '--hide-scrollbars',
       `--screenshot=${out}`, '--window-size=1280,720',
-      // Chrome 156: --virtual-time-budget deadlocks with the game's rAF loop under
-      // software WebGL (no PNG ever lands). --timeout gives the same settle window
-      // on the real clock and captures reliably.
+      // --virtual-time-budget deadlocks with the game's rAF loop under software
+      // WebGL; --timeout settles on the real clock and captures reliably.
       '--timeout=6000',
       `http://127.0.0.1:8793/index.html?shot=${shot}&seed=1`,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });

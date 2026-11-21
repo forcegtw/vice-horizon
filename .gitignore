@@ -3,7 +3,8 @@ node_modules/
 .pnp
 .pnp.js
 
-# Build / packaging output (main.ts writes to MAKEFUN_OUTPUT_DIR, default out/)
+# Build / packaging output (main.ts writes to MAKEFUN_OUTPUT_DIR, default /output;
+# out/ is the local stand-in used for verification)
 out/
 dist/
 build/
@@ -36,3 +37,4 @@ coverage/
 .eslintcache
 .nyc_output
 *.tmp
+*.tsbuildinfo
