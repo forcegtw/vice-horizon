@@ -1,33 +1,33 @@
-// Central tuning constants for Vice Horizon. Everything gameplay-flavoured lives here so
-// systems stay small and the feel can be adjusted in one place.
-// Keep this file dependency-free so every module can import it without cycles.
-// Units are explicit in names where ambiguity is possible (MS, MPS).
-// Camera boom lengths, FOV push and headlight thresholds live here too, so a
-// controller-user retune never touches loop code.
+// config.js — the single tuning table for Vice Horizon.
+// Every gameplay-flavoured number lives here so systems stay small and rebalancing
+// never means hunting through loop code. The file deliberately imports nothing:
+// every other module (and both node smoke harnesses) can pull from it without
+// creating an import cycle. Unit-bearing names carry their unit in the key (MS, MPS).
+
 export const WORLD = {
-  blocks: 10,          // city is blocks x blocks of streets and lots
-  lotSize: 84,         // metres per block cell
+  blocks: 10,          // city grid is blocks x blocks street cells
+  lotSize: 84,         // metres per cell, street centre to street centre
   roadWidth: 16,
   sidewalk: 3,
-  dayLength: 165,      // seconds for a full day-night cycle (was 150 — 2.2 in-game days/5 min felt rushed)
+  dayLength: 165,      // seconds per day-night cycle; shots.js mirrors it as WORLD_DAY
 };
 
 export const PLAYER = {
   walkSpeed: 8,
-  runSpeed: 14,        // sprint speed on Shift; must stay above TRAFFIC.carSpeed feel checks
+  runSpeed: 14,        // Shift sprint; keep above traffic feel checks
   radius: 0.55,
   height: 1.7,
   maxHealth: 100,
   maxArmor: 100,
-  armorAbsorb: 0.7,    // fraction of incoming damage armor soaks before health pays
+  armorAbsorb: 0.7,    // share of incoming damage armor eats before health pays
 };
 
-// Arcade car tuning. maxSpeed pairs with economy's speedMultiplier (+18% engine
-// tune); grip + turnRate decide how hard a corner the getaway can take at speed.
+// Arcade car handling. maxSpeed partners with economy's engine tune (+18%);
+// grip and turnRate decide how hard a corner the getaway can hold at speed.
 export const CAR = {
   accel: 16,
   brake: 26,
-  maxSpeed: 38,        // ~137 km/h at this scale: fast enough to feel like a getaway
+  maxSpeed: 38,        // ~137 km/h at city scale
   reverseSpeed: 10,
   drag: 0.9,
   turnRate: 1.9,
@@ -53,26 +53,27 @@ export const POLICE = {
   despawnCooldown: 12,
 };
 
-// Chase camera: distance/height on foot vs in car, plus the speed-reactive FOV push.
+// Chase camera: boom length/height on foot vs in a car, plus the speed-reactive
+// FOV push. Retuning a controller feel pass never needs to touch loop code.
 export const CAMERA = {
   footBack: 5.8,
   footHeight: 3.0,
   carBack: 10.0,
   carHeight: 4.7,
   baseFov: 62,
-  speedFovPush: 12,    // extra degrees at max speed
-  fovLerp: 4,          // per-second lerp rate for the push
+  speedFovPush: 12,    // extra degrees at top speed
+  fovLerp: 4,          // per-second approach rate for the push
 };
 
-// Player car headlight rig (see attachHeadlights in main.js).
+// Player car headlight rig (attached in main.js; see HEADLIGHTS.nightThreshold).
 export const HEADLIGHTS = {
   range: 42,
   angle: 0.5,
-  nightThreshold: 0.25, // dayAmt below this switches them on
+  nightThreshold: 0.25, // dayAmt at or below this switches the beams on
   onIntensity: 320,
 };
 
-// Autosave cadence, seconds — the loop stores money/mission/economy on this tick.
+// Autosave cadence in seconds; the loop persists money/mission/economy on this tick.
 export const AUTOSAVE_SECONDS = 10;
 
 export const WEAPONS = [
@@ -107,7 +108,7 @@ export const MISSIONS = [
 
 export const SAVE_KEY = 'vice-horizon-save-v1';
 
-// Shop menu blurbs mirror economy.js prices — keep the two tables in step.
+// Shop menu blurbs; economy.js owns the matching price table — edit the two in step.
 export const UPGRADE_HINTS = {
   speed: 'ENGINE TUNE — +18% top speed',
   plating: 'PLATING — +50 armor capacity',
@@ -119,16 +120,17 @@ export const CASH_RUN = {
   timeLimit: 150,   // seconds the collect clock gets
 };
 
-// Save schema version — bump when the persisted shape changes (see save.js).
+// Persisted save shape; bump when the fields change (save.js gates on this).
 export const SAVE_SCHEMA_VERSION = 2;
 
-// Deterministic RNG (mulberry32) shared by world gen and ?shot= replay.
+// Deterministic PRNG (mulberry32) shared by world generation and ?shot= replay.
+// Same seed in, identical stream out — never swap in Math.random on these paths.
 export function makeRng(seed) {
-  let a = seed >>> 0;
-  return function rng() {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  let state = seed >>> 0;
+  return function next() {
+    state = (state + 0x6D2B79F5) | 0;
+    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
   };
 }
