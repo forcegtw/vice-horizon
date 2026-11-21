@@ -9,7 +9,7 @@
 
 import * as THREE from '../vendor/three.min.js';
 
-const PAINTS = [
+const PAINTS = Object.freeze([
   { c: 0xb0182c, m: 0.75, r: 0.32 }, // crimson
   { c: 0x1a3a6b, m: 0.85, r: 0.28 }, // deep blue
   { c: 0xe8e8ea, m: 0.55, r: 0.38 }, // pearl white
@@ -22,7 +22,7 @@ const PAINTS = [
   { c: 0x3a7bbf, m: 0.7, r: 0.3 },   // sky blue
   { c: 0x7a3020, m: 0.65, r: 0.35 }, // maroon
   { c: 0xd6d2c4, m: 0.5, r: 0.4 },   // champagne
-];
+]);
 
 const glassMat = new THREE.MeshPhysicalMaterial({
   color: 0x0c1420, metalness: 0.6, roughness: 0.15,
@@ -39,7 +39,8 @@ const taillightMat = new THREE.MeshStandardMaterial({
 });
 const plateMat = new THREE.MeshStandardMaterial({ color: 0xd9d9df, roughness: 0.5 });
 
-// Small seeded RNG for fixed outfits (mulberry32 — same shape as config.js).
+// Small seeded RNG for fixed outfits (mulberry32 — same shape as config.js
+// makeRng; kept local so models.js stays dependency-free).
 function seededRng(seed) {
   let a = seed >>> 0;
   return function () {
@@ -52,6 +53,7 @@ function seededRng(seed) {
 }
 
 // Taper a box: vertices above mid-height pull inward (or stretch) per axis.
+// Used for limbs and torso silhouettes so people never read as boxes.
 function shapedBox(w, h, d, { topScaleX = 1, topScaleZ = 1, taperTop = 0 } = {}) {
   const g = new THREE.BoxGeometry(w, h, d);
   const p = g.attributes.position;

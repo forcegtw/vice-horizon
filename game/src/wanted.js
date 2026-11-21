@@ -15,22 +15,22 @@
 
 import { POLICE } from './config.js';
 
-// Heat banked per crime. Robbing the law outranks robbing civilians.
-const CRIME_HEAT = {
+// Heat banked per crime; robbing the law outranks robbing civilians.
+const CRIME_HEAT = Object.freeze({
   carjack: 60,
   policeCarjack: 110,
   pedHit: 45,
   vehicleDestroyed: 55,
   gunshot: 25,
   copDestroyed: 90,
-};
+});
 const UNKNOWN_CRIME_HEAT = 40;
 
-const STAR_THRESHOLDS = [40, 110, 220, 360, 520];
+const STAR_THRESHOLDS = Object.freeze([40, 110, 220, 360, 520]);
 const DECAY_PER_SEC = 6;       // heat bleed once the police lose sight
 const PURSUIT_TIMEOUT = 14;    // seconds of no cops in sight before decay starts
 const IN_CAR_BONUS = 4;        // extra sight seconds while driving: getaways feel earned
-const FULL_STAR = 100;
+const FULL_STAR = 100;         // one star of heat, the missionHeat() unit
 
 export class Wanted {
   constructor(state, sfx, hud) {

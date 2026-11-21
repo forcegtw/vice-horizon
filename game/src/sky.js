@@ -22,6 +22,7 @@ uniform vec3 uSunColor;
 uniform vec3 uSunDir;
 uniform float uSunSize;
 uniform float uStarAmt;
+uniform float uHorizonPow;
 varying vec3 vDir;
 
 float hash(vec3 p) {
@@ -32,7 +33,7 @@ float hash(vec3 p) {
 
 void main() {
   float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
-  vec3 col = mix(uHorizon, uTop, pow(h, 0.7));
+  vec3 col = mix(uHorizon, uTop, pow(h, uHorizonPow));
   // Sun / moon disc with a soft halo.
   float d = distance(normalize(vDir), normalize(uSunDir));
   float disc = smoothstep(uSunSize, uSunSize * 0.55, d);
@@ -54,10 +55,13 @@ void main() {
 // Per-band lerp targets [day, dusk, night], allocated once. The dusk bands
 // carry the strongest saturation shift (orange horizon, purple top) — that is
 // what makes the 165 s cycle read as a real sunset in screenshots.
+// Exponent shaping the horizon falloff in the fragment shader; tune with
+// env.js's dome pow exponents so sky and reflections agree.
+const HORIZON_POW = 0.7;
 const TOP_BANDS = [
-  new THREE.Color(0x5b93d6),
-  new THREE.Color(0x2c2350),
-  new THREE.Color(0x0a1226),
+  new THREE.Color(0x5b93d6),  // day
+  new THREE.Color(0x2c2350),  // dusk
+  new THREE.Color(0x0a1226),  // night
 ];
 const HORIZON_BANDS = [
   new THREE.Color(0xd8e6f5),
@@ -77,6 +81,7 @@ export class Sky {
       uSunDir: { value: new THREE.Vector3(0.4, 0.7, 0.3) },
       uSunSize: { value: 0.03 },
       uStarAmt: { value: 0.0 },
+      uHorizonPow: { value: HORIZON_POW },
     };
     const mat = new THREE.ShaderMaterial({
       vertexShader: DOME_VERT,

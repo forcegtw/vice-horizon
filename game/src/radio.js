@@ -15,7 +15,7 @@
 //     resume dump a burst of overdue oscillators; MAX_CATCHUP_STEPS additionally
 //     caps how far behind a throttled tab may catch up per scheduler tick.
 
-const STATIONS = [
+const STATIONS = Object.freeze([
   {
     id: 'wave', name: 'WAVE 103', bpm: 104,
     wave: 'sawtooth', lead: 'square',
@@ -38,13 +38,20 @@ const STATIONS = [
     id: 'off', name: 'RADIO OFF', bpm: 0,
     wave: null, lead: null, scale: [], root: 0, pattern: [],
   },
-];
+]);
 
 const STEPS_PER_BAR = 8;
 const LOOKAHEAD_MS = 90;
 const TICK_MS = 40;
 const MAX_CATCHUP_STEPS = 16;
 const BUS_VOLUME = 0.12;
+// Lead arp skips every third step for rhythmic lift.
+const LEAD_SKIP = 3;
+
+// Sequencer tick: eighth notes — stepDur = 60 / bpm / 2.
+function stepDuration(bpm) {
+  return 60 / bpm / 2;
+}
 
 export class Radio {
   constructor(sfx) {
@@ -135,7 +142,7 @@ export class Radio {
     if (this.sfx.ctx.state !== 'running') return;
     const st = this.station();
     if (st.id === 'off') { this.stop(); return; }
-    const stepDur = 60 / st.bpm / 2;   // eighth notes
+    const stepDur = stepDuration(st.bpm);   // eighth notes
     let guard = 0;
     while (
       this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000 &&
@@ -147,7 +154,7 @@ export class Radio {
       const deg = st.scale[st.pattern[s] % st.scale.length];
       this._blip(st.root * Math.pow(2, deg / 12), stepDur * 1.7, st.wave, 0.5, t);
       // Lead arp one octave up, quieter, skipping every third step for lift.
-      if (s % 3 !== 2) {
+      if (s % LEAD_SKIP !== LEAD_SKIP - 1) {
         const li = (this.step * 5) % st.scale.length;
         this._blip(st.root * 4 * Math.pow(2, st.scale[li] / 12), stepDur * 0.8, st.lead, 0.16, t);
       }

@@ -10,12 +10,14 @@ import { carMesh } from './models.js';
 import { HALF } from './city.js';
 
 // Traffic paints biased bright so cars pop against asphalt; obsidian skipped.
-const CAR_COLORS = [0xb0182c, 0x1a3a6b, 0xe8e8ea, 0x101318, 0x8f9299, 0xc9a227, 0x2c6e49, 0xd4581f];
+const CAR_COLORS = Object.freeze([0xb0182c, 0x1a3a6b, 0xe8e8ea, 0x101318, 0x8f9299, 0xc9a227, 0x2c6e49, 0xd4581f]);
 const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318);
 
 const WANDER_GRACE = 30;    // metres beyond HALF a car may swing wide before recall
 const PROBE = 9;            // lookahead distance for traffic braking
 const POLICE_CAP = 10;      // hard ceiling on simultaneous cruisers
+// Lane offset from the centre line: keeps opposing traffic on opposite sides.
+const LANE_OFFSET = 3.4;
 
 // ---------------------------------------------------------------------------
 // Vehicle entity shared by the player, traffic and police.
@@ -131,13 +133,13 @@ export function resolveCircle(x, z, r, solids) {
   return { x, z, blocked };
 }
 
-// Place a car on a lane: lane offset 3.4 puts it in the correct side of the
+// Place a car on a lane: the LANE_OFFSET puts it in the correct side of the
 // road for its travel direction.
 function lanePlacement(lane, along, dir) {
   if (lane.axis === 'z') {
-    return { x: lane.line + dir * 3.4, z: along, heading: dir > 0 ? 0 : Math.PI };
+    return { x: lane.line + dir * LANE_OFFSET, z: along, heading: dir > 0 ? 0 : Math.PI };
   }
-  return { x: along, z: lane.line + dir * 3.4, heading: dir > 0 ? Math.PI / 2 : -Math.PI / 2 };
+  return { x: along, z: lane.line + dir * LANE_OFFSET, heading: dir > 0 ? Math.PI / 2 : -Math.PI / 2 };
 }
 
 function pickLane(roadLines, rng) {

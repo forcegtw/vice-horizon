@@ -81,7 +81,8 @@ through `economy.bind(state)`; money has a single writer per source — missions
 - Saves live in `localStorage` (versioned schema, corrupt entries start fresh); delete
   site data to reset progress.
 - Smoke checks: `node scripts/smoke-economy.mjs`, `node scripts/smoke-new-systems.mjs`,
-  and `node scripts/verify-shots.mjs` for zero-console-error screenshot runs.
+  `node scripts/check-headless.mjs`, and `node scripts/verify-shots.mjs` for
+  zero-console-error screenshot runs.
 
 ## Entry
 

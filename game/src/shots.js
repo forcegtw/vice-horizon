@@ -7,13 +7,15 @@
 // Timing: start = bright morning title with long shadows, play = warm mid-
 // morning cruise on the centre boulevard, end = blue-hour night on foot — the
 // three beats cover the widest visual range in three captures.
-// WORLD_DAY mirrors config.dayLength; bump both if the cycle is retuned.
-// Kept dependency-free (no config import) for the smoke harness.
-
-const WORLD_DAY = 165; // == WORLD.dayLength (config.js)
+// Seconds a full world day in shot staging. Mirrors WORLD.dayLength from
+// config.js; bump both if the cycle is retuned. Kept dependency-free (no
+// config import) for the smoke harness.
+const WORLD_DAY = 165;
 
 // Camera booms for the title framing, in world metres.
-const SHOT_BOOM = { titleBack: 18, titleUp: 26 };
+const SHOT_BOOM = Object.freeze({ titleBack: 18, titleUp: 26 });
+// Where each staged shot parks the world clock, as a fraction of WORLD_DAY.
+const SHOT_CLOCK = { start: 0.36, play: 0.52, end: 0.79 };
 
 export const SHOTS = {
   start(state) {
@@ -28,7 +30,7 @@ export const SHOTS = {
     state.player.z = 30;
     state.camera.position.set(state.player.x - SHOT_BOOM.titleBack, SHOT_BOOM.titleUp, state.player.z - 34);
     state.camera.lookAt(state.player.x, 6, state.player.z + 10);
-    state.time = WORLD_DAY * 0.36;
+    state.time = WORLD_DAY * SHOT_CLOCK.start;
   },
 
   play(state) {
@@ -49,7 +51,7 @@ export const SHOTS = {
       other.z = -320;
       other.speed = 0;
     }
-    state.time = WORLD_DAY * 0.52;
+    state.time = WORLD_DAY * SHOT_CLOCK.play;
     state.mission.start();
     state.mission.targets[0].x = 0;
     state.mission.targets[0].z = 90;
@@ -72,6 +74,6 @@ export const SHOTS = {
     state.mission.targets[0].z = 0;
     state.mission.marker.position.set(0, 0, 0);
     state.mission.message('Grab the cash caches before the clock runs out.', 60);
-    state.time = WORLD_DAY * 0.79;
+    state.time = WORLD_DAY * SHOT_CLOCK.end;
   },
 };

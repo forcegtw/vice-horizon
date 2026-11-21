@@ -47,8 +47,8 @@ const NIGHT_TINT = {
   sky: 0x0a1020, horizon: 0x1a2338, bounce: 0x121a2a, ground: 0x05070c,
 };
 
-// Reflection strength: night keeps a quarter intensity so chrome stays lit
-// against the street instead of going black.
+// Reflection strength across the day cycle (day -> night). Night keeps a
+// quarter intensity so chrome stays lit against the street instead of blacking out.
 const REFLECT_DAY = 0.25;
 const REFLECT_NIGHT = 0.75;
 
@@ -56,9 +56,13 @@ const REFLECT_NIGHT = 0.75;
 // nothing. setHex clears the colour first, so sharing one scratch is safe.
 const scratch = new THREE.Color();
 
+// Lerp one uniform between its day and night hex at the given blend factor.
 function tint(uniform, dayHex, nightHex, blend) {
   uniform.value.copy(scratch.setHex(dayHex).lerp(scratch.setHex(nightHex), blend));
 }
+
+// Clamp helpers: setMood accepts a slightly over-unity dayAmt from callers.
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 export function buildEnvironment(renderer, scene) {
   const domeScene = new THREE.Scene();
@@ -92,7 +96,7 @@ export function buildEnvironment(renderer, scene) {
     // Re-tint the cached env when the day/night clock moves. Clamp at the
     // boundary: callers may hand in a slightly over-unity dayAmt.
     setMood(dayAmt) {
-      const day = THREE.MathUtils.clamp(dayAmt, 0, 1);
+      const day = clamp01(dayAmt);
       const night = 1 - day;
       tint(uniforms.uSky, DAY_TINT.sky, NIGHT_TINT.sky, night);
       tint(uniforms.uHorizon, DAY_TINT.horizon, NIGHT_TINT.horizon, night);

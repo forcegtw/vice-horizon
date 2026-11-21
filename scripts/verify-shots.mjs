@@ -7,8 +7,10 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' };
+const MIME = Object.freeze({ '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' });
 const root = join(process.cwd(), 'game');
+// Port for this script's inline server: 8793, distinct from check-headless (8791).
+const VERIFY_PORT = 8793;
 const srv = createServer((req, res) => {
   const rel = req.url.split('?')[0];
   const p = join(root, rel === '/' ? 'index.html' : rel);
@@ -18,7 +20,7 @@ const srv = createServer((req, res) => {
     res.end(data);
   } catch { res.writeHead(404); res.end('nope'); }
 });
-await new Promise((r) => srv.listen(8793, r));
+await new Promise((r) => srv.listen(VERIFY_PORT, r));
 
 const shell = process.env.HOME + '/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell';
 const shots = process.argv.slice(2).length ? process.argv.slice(2) : ['start', 'play', 'end'];
@@ -41,7 +43,7 @@ for (const shot of shots) {
       // under software WebGL (no PNG ever lands). --timeout gives the same
       // settle window on the real clock and captures reliably.
       '--timeout=6000',
-      `http://127.0.0.1:8793/index.html?shot=${shot}&seed=1`,
+      `http://127.0.0.1:${VERIFY_PORT}/index.html?shot=${shot}&seed=1`,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr.on('data', (d) => {
       for (const line of d.toString().split('\n')) {

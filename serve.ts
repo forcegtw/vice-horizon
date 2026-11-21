@@ -13,11 +13,14 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 
-// --port override; anything non-numeric or out of range falls back to 8080.
+// Default listen port; --port overrides it below.
+const DEFAULT_PORT = 8080;
+
+// --port override; anything non-numeric or out of range falls back to DEFAULT_PORT.
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+const requested = portIndex === -1 ? DEFAULT_PORT : Number(args[portIndex + 1]);
+const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : DEFAULT_PORT;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

@@ -33,4 +33,6 @@ Thumbs.db
 # Test output
 coverage/
 .eslintcache
+*.tmp
+.nyc_output
 

@@ -11,8 +11,11 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' };
+const MIME = Object.freeze({ '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' });
 const root = join(process.cwd(), 'game');
+// Port the inline server listens on; 8791 keeps clear of the dev server (8080)
+// and verify-shots (8793) so both scripts can run side by side.
+const CHECK_PORT = 8791;
 const srv = createServer((req, res) => {
   const rel = req.url.split('?')[0];
   const p = join(root, rel === '/' ? 'index.html' : rel);
@@ -22,7 +25,7 @@ const srv = createServer((req, res) => {
     res.end(data);
   } catch { res.writeHead(404); res.end('nope'); }
 });
-await new Promise(r => srv.listen(8791, r));
+await new Promise(r => srv.listen(CHECK_PORT, r));
 
 const shell = process.env.HOME + '/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell';
 const shots = ['start', 'play', 'end'];
@@ -44,7 +47,7 @@ for (const shot of shots) {
       // under software WebGL (no PNG ever lands). --timeout gives the same
       // settle window on the real clock and captures reliably.
       '--timeout=6000',
-      `http://127.0.0.1:8791/index.html?shot=${shot}&seed=1`,
+      `http://127.0.0.1:${CHECK_PORT}/index.html?shot=${shot}&seed=1`,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr.on('data', d => {
       for (const line of d.toString().split('\n')) {

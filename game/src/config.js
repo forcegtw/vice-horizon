@@ -75,6 +75,7 @@ export const HEADLIGHTS = Object.freeze({
 
 export const AUTOSAVE_SECONDS = 10;
 
+// Weapon table: rate is seconds between shots, auto true = hold-to-fire.
 export const WEAPONS = Object.freeze([
   { id: 'fist', name: 'Fists', damage: 10, rate: 0.45, range: 2.2, auto: false },
   { id: 'pistol', name: 'Pistol', damage: 22, rate: 0.28, range: 42, auto: false },
@@ -123,6 +124,7 @@ export const SAVE_SCHEMA_VERSION = 2;
 
 // Deterministic RNG (mulberry32). World gen and ?shot= replay both share it,
 // so a given seed always produces the identical city and traffic layout.
+// The magic constants are the canonical mulberry32 ones; do not "fix" them.
 export function makeRng(seed) {
   let a = seed >>> 0;
   return function rng() {

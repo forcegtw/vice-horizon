@@ -34,11 +34,12 @@ function canvasTexture(size, paint, { repeat } = {}) {
 }
 
 // Facade styles: wall/trim colours plus the lit-window and dark-pane tints.
-const FACADE_STYLES = [
+// Kept as data so a new style is one array entry, not a new code path.
+const FACADE_STYLES = Object.freeze([
   { wall: '#7d5040', trim: '#5e3d32', lit: '#f5d9a8', dark: '#191c24' }, // brick red
   { wall: '#8b9099', trim: '#6f747d', lit: '#d6e6f5', dark: '#151920' }, // concrete
   { wall: '#38506e', trim: '#283c56', lit: '#b8d8f0', dark: '#0f1622' }, // glass blue
-];
+]);
 
 // Window grid geometry shared by facade + glow maps so the emissive copy
 // lands exactly on the albedo windows: 7 x 9 panes per tile, deterministic
@@ -236,10 +237,10 @@ class BoxBatch {
   }
 }
 
-const PALETTE = [
+const PALETTE = Object.freeze([
   0x4b5a75, 0x6b6f86, 0x8a7f95, 0x3d4759, 0x9a8fa0, 0x5c6b82,
   0x7d6b78, 0x2f3746, 0x8e97a8, 0x6a5d6e,
-];
+]);
 
 const NEON_COLORS = [0xff2d95, 0x2de1ff, 0xffe14d, 0x7cff4d, 0xb44dff];
 const FLOWER_COLORS = [0xd94f6b, 0xe8c14f, 0xc95fd9, 0xe8e4ea];
@@ -449,6 +450,11 @@ function buildPark(group, cx, cz, cellInner, rng, solids, parkSpots) {
   parkSpots.push({ x: cx, z: cz });
 }
 
+// % of towers that get a setback tier on the upper mass (skyline steps).
+const SETBACK_CHANCE = 0.7;
+// Height a tower must exceed before the setback branch even considers it.
+const SETBACK_MIN_HEIGHT = 24;
+
 // ---- Tower lots: 1-3 buildings per block with trim, setback, shopfront ----
 function buildBlockTowers(towers, shops, trim, solids, cx, cz, cellInner, half, rng) {
   const splits = rng() < 0.45 ? 1 : rng() < 0.6 ? 2 : 3;
@@ -476,7 +482,7 @@ function buildBlockTowers(towers, shops, trim, solids, cx, cz, cellInner, half, 
     towers[styleIdx].add(bx, h / 2 + 0.2, bz, bw, h, bd, col, [4.2, 4.8]);
     trim.add(bx, h + 0.6, bz, bw * 1.02, 0.8, bd * 1.02, new THREE.Color(0x22262f), 4);
     // Setback tier on taller buildings gives the skyline real steps.
-    if (h > 24 && rng() < 0.7) {
+    if (h > SETBACK_MIN_HEIGHT && rng() < SETBACK_CHANCE) {
       const upperH = h * (0.22 + rng() * 0.16);
       towers[styleIdx].add(bx, h + upperH / 2 + 0.9, bz, bw * 0.62, upperH, bd * 0.62, col, [4.2, 4.8]);
       trim.add(bx, h + upperH + 1.2, bz, bw * 0.64, 0.6, bd * 0.64, new THREE.Color(0x22262f), 4);

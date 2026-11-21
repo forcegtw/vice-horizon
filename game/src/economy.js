@@ -21,18 +21,19 @@ const ECO_KEY = 'vice-horizon-economy-v1';
 // The shop menu's price list, in dollars. Key order matches the hotkeys of
 // buy() (B health, N armor, V speed, C plating) so the menu reads in the same
 // order the keys sit on the keyboard.
-const PRICES = {
+// Shop menu's price list — also the single source of truth for _menuText().
+const PRICES = Object.freeze({
   health: 150,     // full heal at a gas station
   armor: 400,      // full armor refill
   speed: 2500,     // permanent engine tune (one-time)
   plating: 1800,   // permanent armor upgrade (one-time)
-};
+});
 
 // What each permanent upgrade grants when bought.
-export const UPGRADES = {
+export const UPGRADES = Object.freeze({
   speedBonus: 0.18,   // +18% top speed with the engine tune
   armorBonus: 50,     // extra armor capacity with plating
-};
+});
 
 export class Economy {
   constructor(scene, city, rng) {
@@ -268,7 +269,10 @@ export class Economy {
   }
 
   // Top-speed multiplier applied to the player's car in main.js drive calls.
-  speedMultiplier() { return this.upgrades.speed ? 1 + UPGRADES.speedBonus : 1; }
+  speedMultiplier() {
+    // Only the forward cap scales; reverse and braking stay stock.
+    return this.upgrades.speed ? 1 + UPGRADES.speedBonus : 1;
+  }
 
   // Extra armor capacity above the base max (plating raises the ceiling).
   armorCap() { return PLAYER.maxArmor + (this.upgrades.plating ? UPGRADES.armorBonus : 0); }

@@ -27,6 +27,9 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
+// Folder name inside MAKEFUN_OUTPUT_DIR the scorer expects screenshots under.
+const SCREENSHOT_DIR = 'screenshots';
+
 // Caps the scorer enforces on the screenshot folder — stay inside them here
 // rather than failing there.
 const SCREENSHOT_CAPS = { max: 4, maxBytes: 262144 };
@@ -49,8 +52,8 @@ cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 
 // Screenshots: copy the ones that fit the caps, in name order (the first by
 // name is the dossier's cover, so order matters).
-const shotSrc = join(here, 'screenshots');
-mkdirSync(join(out, 'screenshots'), { recursive: true });
+const shotSrc = join(here, SCREENSHOT_DIR);
+mkdirSync(join(out, SCREENSHOT_DIR), { recursive: true });
 if (existsSync(shotSrc)) {
   const names = readdirSync(shotSrc).sort().filter((n) => !n.startsWith('.'));
   let kept = 0;
@@ -65,7 +68,7 @@ if (existsSync(shotSrc)) {
       console.log(`screenshot skipped (over ${SCREENSHOT_CAPS.maxBytes} bytes): ${name}`);
       continue;
     }
-    cpSync(p, join(out, 'screenshots', name));
+    cpSync(p, join(out, SCREENSHOT_DIR, name));
     kept++;
   }
 }

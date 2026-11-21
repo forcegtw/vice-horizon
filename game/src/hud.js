@@ -17,6 +17,7 @@ const MINIMAP = {
   radius: 14,      // clip corner rounding
 };
 
+// Injected stylesheet id; the guard below keeps re-instantiation from stacking copies.
 const STYLE_ID = 'vh-hud-style';
 const CSS = `
 #hud .vh-panel { background: linear-gradient(180deg, #0b0e14d9, #0b0e14b3);
@@ -47,11 +48,13 @@ const CSS = `
 #hud .vh-hidden { display: none !important; }
 `;
 
-// Fixed step for the toast countdown: update() gets no dt, and a banner only
-// needs to hide itself — 1/60 per HUD frame is close enough.
+// Seconds the toast countdown steps down per HUD frame: update() gets no dt,
+// and a banner only needs to hide itself — 1/60 is close enough.
 const TOAST_STEP = 1 / 60;
 // Bars re-write below this delta in percent.
 const BAR_EPSILON = 0.4;
+// Wanted star row total — HUD renders filled/empty pairs against this.
+const MAX_STARS = 5;
 
 export class Hud {
   constructor(root) {
@@ -167,7 +170,7 @@ export class Hud {
       this.el.cash.textContent = cash;
     }
 
-    const stars = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
+    const stars = '★'.repeat(state.wanted) + '☆'.repeat(MAX_STARS - state.wanted);
     if (stars !== this._last.stars) {
       this._last.stars = stars;
       this.el.wanted.textContent = stars;

@@ -7,6 +7,9 @@
 // paused/shot session leaves no hum. cash() guards a missing context so the
 // reward sting before the first gesture is a no-op, not a TypeError.
 
+// Enveloped tone attack in seconds — kills the click a raw step edge produces.
+const TONE_ATTACK = 0.005;
+
 export class Sfx {
   constructor() {
     this.ctx = null;
@@ -72,7 +75,7 @@ export class Sfx {
     o.frequency.setValueAtTime(freq, t);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), t + dur);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(gain, t + TONE_ATTACK);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g);
     g.connect(dest || this.master);
@@ -170,7 +173,7 @@ export class Sfx {
       const t = this.ctx.currentTime;
       this._sirenOsc.frequency.cancelScheduledValues(t);
       this._sirenOsc.frequency.setValueAtTime(this._sirenOsc.frequency.value, t);
-      const ph = (t % 1.8) / 1.8;
+      const ph = (t % SIREN_PERIOD) / SIREN_PERIOD;
       const target = ph < 0.5 ? 700 + 800 * (ph / 0.5) : 1500 - 800 * ((ph - 0.5) / 0.5);
       this._sirenOsc.frequency.linearRampToValueAtTime(target, t + 0.05);
     } else if (!on && this._sirenOsc) {

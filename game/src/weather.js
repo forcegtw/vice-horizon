@@ -20,18 +20,20 @@ const RAIN_CELL = 130;    // width/depth of the rain volume around the player
 const RAIN_TOP = 42;      // spawn height inside the volume
 const RAIN_SIZE = 0.34;
 
-const ROAD_DRY = { roughness: 0.72, metalness: 0.18, color: 0x1e2026 };
-const ROAD_WET = { roughness: 0.18, metalness: 0.5, color: 0x14161b };
+const ROAD_DRY = Object.freeze({ roughness: 0.72, metalness: 0.18, color: 0x1e2026 });
+const ROAD_WET = Object.freeze({ roughness: 0.18, metalness: 0.5, color: 0x14161b });
 const WET_GAIN = 0.22;    // wetness units/s while raining
 const DRY_LOSS = 0.045;   // drying is deliberately much slower: streets glisten on
+// Wetness above this reads as visibly wet roads (drives the HUD label too).
+const WET_VISIBLE = 0.3;
 
 // Phase ladder: hold seconds are randomized ±(0.8..1.3x) per entry.
-const PHASES = [
+const PHASES = Object.freeze([
   { name: 'Clear',    intensity: 0.0,  hold: 40 },
   { name: 'Overcast', intensity: 0.15, hold: 26 },
   { name: 'Rain',     intensity: 0.6,  hold: 34 },
   { name: 'Storm',    intensity: 1.0,  hold: 22 },
-];
+]);
 
 export class Weather {
   constructor(scene, city, rng) {
@@ -141,7 +143,7 @@ export class Weather {
     const m = road.material;
     m.roughness = ROAD_DRY.roughness + (ROAD_WET.roughness - ROAD_DRY.roughness) * this.wetness;
     m.metalness = ROAD_DRY.metalness + (ROAD_WET.metalness - ROAD_DRY.metalness) * this.wetness;
-    m.color.setHex(this.wetness > 0.3 ? ROAD_WET.color : ROAD_DRY.color);
+    m.color.setHex(this.wetness > WET_VISIBLE ? ROAD_WET.color : ROAD_DRY.color);
   }
 
   _fog(dt) {
@@ -179,4 +181,7 @@ export class Weather {
     if (this.intensity > 0.05) return '☁ Overcast';
     return '☀ Clear';
   }
+
+  // True when the rain sheet is visibly falling (drives any future audio hook).
+  get raining() { return this.intensity > 0.12; }
 }

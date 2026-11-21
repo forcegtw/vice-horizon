@@ -39,7 +39,9 @@ export function makeMarker(color = 0xffc94a) {
 // Rival count for the eliminate job (kept local; not a config knob).
 const RIVALS = 3;
 // Reach radii: caches are generous, cars need precision, docks are wide.
-const RADIUS = { cash: 3, car: 4.5, dock: 6 };
+const RADIUS = Object.freeze({ cash: 3, car: 4.5, dock: 6 });
+// Cash-run caches and rivals both report progress with this denominator.
+const PROGRESS_TOTALS = { collect: CASH_RUN.caches, eliminate: RIVALS };
 
 export class Missions {
   constructor(scene, rng, city, sfx) {
@@ -161,13 +163,13 @@ export class Missions {
         t.done = true;
         this.collected++;
         this.sfx.pickup();
-        this.message(`Cache collected (${this.collected}/${CASH_RUN.caches})`, 2.5);
+        this.message(`Cache collected (${this.collected}/${PROGRESS_TOTALS.collect})`, 2.5);
         this.pointAtNearest();
       } else if (t.kind === 'rival' && t.mesh && t.mesh.userData.dead) {
         // Rivals die from main.js attack(); the mesh flag is the kill record.
         t.done = true;
         this.collected++;
-        this.message(`Lookout down (${this.collected}/${RIVALS})`, 2.5);
+        this.message(`Lookout down (${this.collected}/${PROGRESS_TOTALS.eliminate})`, 2.5);
         this.pointAtNearest();
       } else if (t.kind === 'car' && player.inCar && d < RADIUS.car) {
         // Phase 2: deliver the boosted car to the dock by the map edge.

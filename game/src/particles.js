@@ -9,10 +9,12 @@
 
 import * as THREE from '../vendor/three.min.js';
 
-const POOL = 600;
-const PARK_Y = -1000;
+const POOL = 600;        // hard ceiling — bursts past it reuse the oldest slots
+const PARK_Y = -1000;    // dead-slot parking depth, far below the play area
 const GRAVITY = 9.8;
 const FLOOR_BOUNCE = 0.3;
+// Slot-identifies-as-parked test: anything within PARK_Y/10 of PARK_Y is asleep.
+const PARK_TEST_Y = PARK_Y / 10;
 
 export class Particles {
   constructor(scene) {
@@ -89,7 +91,7 @@ export class Particles {
     for (let i = 0; i < POOL; i++) {
       if (this.life[i] <= 0) {
         // Park once, then leave it alone (dirty flag would otherwise churn).
-        if (this.pos[i * 3 + 1] > PARK_Y / 10) {
+        if (this.pos[i * 3 + 1] > PARK_TEST_Y) {
           this.pos[i * 3 + 1] = PARK_Y;
           this.vel[i * 3] = 0;
           this.vel[i * 3 + 1] = 0;

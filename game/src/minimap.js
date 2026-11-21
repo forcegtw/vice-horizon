@@ -8,9 +8,10 @@
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
 
-const SIZE = 230;              // canvas edge in px (square)
-const BORDER = 20;             // world metres of margin baked around the city
-const REDRAW_INTERVAL = 0.1;   // seconds between redraws
+// Canvas edge in px (square) and the world metres of margin baked around the city.
+const SIZE = 230;
+const BORDER = 20;
+const REDRAW_INTERVAL = 0.1;   // seconds between redraws (~10 Hz)
 
 export class Minimap {
   constructor(root, city) {

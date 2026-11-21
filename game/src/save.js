@@ -11,8 +11,11 @@
 import { SAVE_KEY, SAVE_SCHEMA_VERSION } from './config.js';
 
 // Economy ledger key — lives beside the main save and is wiped with it.
-// Must match the key economy.js persists under.
+// Must match the key economy.js persists under (ECO_KEY there).
 const ECO_KEY = 'vice-horizon-economy-v1';
+
+// The one schema version this build writes; migrate() bridges older saves to it.
+const CURRENT_VERSION = SAVE_SCHEMA_VERSION;
 
 // Migrate an older save up to the current schema; null when unsalvageable.
 function migrate(data, fromVersion) {
@@ -22,18 +25,23 @@ function migrate(data, fromVersion) {
     out.version = 2;
     out.economy = out.economy && typeof out.economy === 'object' ? out.economy : null;
   }
-  return out.version === SAVE_SCHEMA_VERSION ? out : null;
+  return out.version === CURRENT_VERSION ? out : null;
 }
 
 export function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    const data = JSON.parse(raw);
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return null;   // corrupt JSON: start fresh, never crash boot
+    }
     // Versionless saves are treated as v1; a version beyond ours is unreadable.
     const version = typeof data.version === 'number' ? data.version
       : (typeof data.money === 'number' ? 1 : null);
-    if (version === null || version > SAVE_SCHEMA_VERSION) return null;
+    if (version === null || version > CURRENT_VERSION) return null;
     const migrated = migrate(data, version);
     if (!migrated) return null;
     if (!Number.isFinite(migrated.money)) return null;

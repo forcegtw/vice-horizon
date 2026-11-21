@@ -8,6 +8,8 @@
 // Blur clears keys, taps and the mouse button, so refocus after alt-tab can
 // never resume with the weapon firing.
 
+// Keys the browser would scroll or navigate with; preventDefault applies only
+// to these so game letters stay untouched.
 const BROWSER_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'];
 
 export class Input {
@@ -19,7 +21,8 @@ export class Input {
     this.firing = false;          // LMB held
     this._pressedOnce = new Set(); // fresh presses not yet consumed
 
-    // Action bindings: an action matches ANY of its bound physical codes.
+    // Action bindings: an action matches ANY of its bound physical codes, so a
+    // rebinding to two keys still fires from either.
     this.bindings = {
       forward: ['KeyW', 'ArrowUp'],
       back: ['KeyS', 'ArrowDown'],
@@ -79,7 +82,7 @@ export class Input {
 
   // Swap an action's codes mid-session, no restart needed.
   rebind(action, codes) {
-    if (action in this.bindings) this.bindings[action] = codes.slice();
+    if (action in this.bindings) this.bindings[action] = Object.freeze(codes.slice());
   }
 
   // True the first frame any bound code for the action is freshly pressed.

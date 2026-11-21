@@ -1,6 +1,10 @@
 // Node smoke test for the newer modules: missions2 (side jobs), peds2 (life
 // layer), minimap (class shape). Minimal mocks; exercises startNext / update
 // for every job kind, the ped fear path, and the minimap prototype surface.
+
+// Checkpoint-chain guard count: buildRoute retries are capped at this so a
+// degenerate road-line list can never spin the loop forever.
+const ROUTE_TRY_CAP = 8;
 import { SideJobs, JOB_CATALOGUE } from '../game/src/missions2.js';
 import { Peds2 } from '../game/src/peds2.js';
 import { Minimap } from '../game/src/minimap.js';
@@ -27,6 +31,7 @@ function startKind(kind) {
     const spec = jobs.catalogue[jobs.cursor % jobs.catalogue.length];
     if (spec.kind === kind) return jobs.startNext();
     jobs.cursor++;
+    if (jobs.cursor > ROUTE_TRY_CAP * jobs.catalogue.length) break;
   }
   return jobs.startNext();
 }
@@ -75,7 +80,7 @@ p2.update(0.016, pp, 3);
 console.log('peds2 fear after stars=3:', p2.peds.peds[0].fearLevel.toFixed(2), 'anim', p2.peds.peds[0].anim);
 
 // ---- minimap: DOM-less canvas can't run here; assert the class shape ----
-const minimapMethods = ['toggle', 'setVisible', 'update', 'draw', 'bakeRoads'];
+const minimapMethods = Object.freeze(['toggle', 'setVisible', 'update', 'draw', 'bakeRoads']);
 const allPresent = minimapMethods.every((m) => typeof Minimap.prototype[m] === 'function');
 if (!allPresent) { console.error('Minimap missing prototype methods:', minimapMethods); process.exit(1); }
 console.log('Minimap prototype methods:', allPresent);

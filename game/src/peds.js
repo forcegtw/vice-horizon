@@ -34,8 +34,11 @@ const ALARM_RADIUS = 26;
 const CALM_RADIUS = 40;
 const FLEE_SPEED = 5.2;
 
-// How long a body stays on the ground before the slot recycles.
+// How long a body stays on the ground before its slot recycles.
 const DEAD_TIME = 9;
+
+// Streets stay walkable a little past the city edge before peds turn back.
+const PED_MAP_MARGIN = 20;
 
 export class Peds {
   constructor(scene, city, rng) {
@@ -116,7 +119,7 @@ export class Peds {
       if (hit.blocked) {
         // Veer sideways and retry next frame; a right turn plus a little noise.
         p.heading += Math.PI / 2 + rng();
-      } else if (Math.abs(hit.x) < HALF + 20 && Math.abs(hit.z) < HALF + 20) {
+      } else if (Math.abs(hit.x) < HALF + PED_MAP_MARGIN && Math.abs(hit.z) < HALF + PED_MAP_MARGIN) {
         p.x = hit.x;
         p.z = hit.z;
       } else {
@@ -161,5 +164,5 @@ export class Peds {
 }
 
 // Re-export the palettes so tests or future systems can sample them without
-// duplicating the arrays.
-export const PED_PALETTES = { SKIN, SHIRT };
+// duplicating the arrays. (Also consumed by peds2's density-based spawn notes.)
+export const PED_PALETTES = Object.freeze({ SKIN, SHIRT });

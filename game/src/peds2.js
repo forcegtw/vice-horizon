@@ -34,9 +34,9 @@ const FEAR_SPRINT_THRESHOLD = 0.75;
 const FEAR_HURRY_THRESHOLD = 0.3;
 
 // Cadence per animation tier, in stride cycles per second.
-const CADENCE = { stroll: 3.2, hurry: 4.6, sprint: 6.0, idle: 1.0 };
+const CADENCE = Object.freeze({ stroll: 3.2, hurry: 4.6, sprint: 6.0, idle: 1.0 });
 // Arm/leg swing amplitude per tier.
-const AMPLITUDE = { stroll: 0.62, hurry: 0.78, sprint: 0.62, idle: 0.08 };
+const AMPLITUDE = Object.freeze({ stroll: 0.62, hurry: 0.78, sprint: 0.62, idle: 0.08 });
 
 export class Peds2 {
   constructor(peds, city, rng) {

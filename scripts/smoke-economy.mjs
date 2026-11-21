@@ -2,10 +2,17 @@
 // exercise the update paths so TDZ / runtime errors surface without a browser.
 // Covers: Wanted (heat/stars/decay/clear), Weather (full storm cycle),
 // Radio (station cycling), Economy (money, upgrades, shop proximity, buys).
+
 import { Wanted } from '../game/src/wanted.js';
 import { Weather } from '../game/src/weather.js';
 import { Radio } from '../game/src/radio.js';
 import { Economy } from '../game/src/economy.js';
+
+// Fixed rng stand-in: a deterministic LCG so the smoke run is reproducible.
+let rngVal = 0.4;
+function smokeRng() {
+  return (rngVal = (rngVal * 9301 + 49297) % 233280 / 233280);
+}
 
 // --- mocks (duck-typed to what each module touches) ---
 const noop = () => {};
@@ -42,8 +49,7 @@ console.log('cleared:', state.wanted, w.heat);
 import * as THREE from '../game/vendor/three.min.js';
 const scene = mockScene();
 const city = mockCity();
-let rngVal = 0.4;
-const rng = () => (rngVal = (rngVal * 9301 + 49297) % 233280 / 233280);
+const rng = smokeRng;
 const weather = new Weather(scene, city, rng);
 for (let i = 0; i < 600; i++) weather.update(0.1, { x: 0, z: 0 });
 console.log('weather phase:', weather.name, 'intensity', weather.intensity.toFixed(2),

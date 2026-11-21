@@ -41,6 +41,8 @@ export const JOB_CATALOGUE = [
 
 // Delivery speed bonus: max fraction of the base payout added for a fast haul.
 const DELIVERY_BONUS_MAX = 0.25;
+// Delivery payouts never fall below this share of the catalogue base.
+const DELIVERY_PAYOUT_FLOOR = 0.6;
 
 // Distance in metres that counts as "reached" for gates, pickups and drops.
 // Gates and drop-offs are a touch more generous than pickups on purpose: at
@@ -129,7 +131,7 @@ export class SideJobs {
       this.job.tx = drop.x; this.job.tz = drop.z;
       // Payout scales with straight-line haul distance, min 60% of base.
       const haul = Math.hypot(drop.x - pick.x, drop.z - pick.z);
-      this.job.payout = Math.round(spec.payout * (0.6 + Math.min(1, haul / (HALF * 1.2))));
+      this.job.payout = Math.round(spec.payout * (DELIVERY_PAYOUT_FLOOR + Math.min(1, haul / (HALF * 1.2))));
       this.marker.visible = true;
       this.setMarkerAt(pick, JOB_COLORS.delivery);
       this.message(`DELIVERY — ${spec.name}: grab the goods, then drop them across town. $${this.job.payout} on time.`);
@@ -165,6 +167,13 @@ export class SideJobs {
     const lane = this.city.roadLines[Math.floor(this.rng() * this.city.roadLines.length)];
     const along = (this.rng() - 0.5) * 2 * HALF * 0.8;
     return lane.axis === 'z' ? { x: lane.line, z: along } : { x: along, z: lane.line };
+  }
+
+  // Delivery payouts never fall below DELIVERY_PAYOUT_FLOOR of the catalogue
+  // base; the bonus above it is clamped by DELIVERY_BONUS_MAX in update().
+  // (Kept as a method so a future dynamic catalogue can override it.)
+  jobPayoutFloor() {
+    return Math.round(this.catalogueBasePayout * DELIVERY_PAYOUT_FLOOR);
   }
 
   setMarkerAt(pos, color) {

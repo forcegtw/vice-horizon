@@ -46,6 +46,9 @@ import { join } from 'node:path';
 
 // ---------------------------------------------------------------- constants
 
+// Folder name inside dir/ the scorer expects screenshots under.
+const SCREENSHOT_DIRNAME = 'screenshots';
+
 /** The dossier shape buildDossier writes. */
 export const DOSSIER_SCHEMA = 'makefun/dossier/v1';
 
@@ -1115,7 +1118,7 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
   };
 
   // Screenshots: name-sorted, dot-names skipped, each a PNG or JPEG within the caps.
-  const shotsDir = join(dir, 'screenshots');
+  const shotsDir = join(dir, SCREENSHOT_DIRNAME);
   let shotDirStat;
   try {
     shotDirStat = lstatSync(shotsDir);
@@ -1147,14 +1150,14 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
         `buildDossier: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters, not starting with . or -`,
       );
     }
-    const size = lstatSync(join(dir, 'screenshots', name)).size;
+    const size = lstatSync(join(shotsDir, name)).size;
     if (size > maxImageBytes.n) {
       throw new DossierError(
         `buildDossier: screenshots/${name} is ${size} bytes, over the ${maxImageBytes.n} ${maxImageBytes.whose}`,
         'screenshots.max_bytes',
       );
     }
-    const bytes = new Uint8Array(readFileSync(join(dir, 'screenshots', name)));
+    const bytes = new Uint8Array(readFileSync(join(shotsDir, name)));
     if (bytes.length > maxImageBytes.n) {
       throw new DossierError(
         `buildDossier: screenshots/${name} is ${bytes.length} bytes, over the ${maxImageBytes.n} ${maxImageBytes.whose}`,

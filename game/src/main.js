@@ -174,10 +174,14 @@ const weather = new Weather(scene, city, rng);
 // Side-job board: races / deliveries / rampage, independent of the main chain.
 const sideJobs = new SideJobs(scene, rng, city, sfx);
 
+// World time when the game boots: 0.7 of a day puts the opening on the warm
+// late-afternoon side of the cycle, so the title screen has long shadows.
+const BOOT_DAY_FRACTION = 0.7;
+
 // Shared state bag: every system that needs cross-cutting reads/writes hangs
 // off this object rather than reaching into module-level lets.
 const state = {
-  money: 0, wanted: 0, time: WORLD.dayLength * 0.7,
+  money: 0, wanted: 0, time: WORLD.dayLength * BOOT_DAY_FRACTION,
   police, traffic,
   sfx, paused: false,
   wantedCooldown: 0,
@@ -297,9 +301,11 @@ function respawn() {
 }
 
 // Enter the nearest car (traffic or a police cruiser); stealing is implicit.
+// Squared distance a car must be within for the player to enter it.
+const ENTER_RADIUS_SQ = 4.5 * 4.5;
 function tryEnterCar() {
   if (player.inCar) { exitCar(); return; }
-  let best = null, bestD2 = 4.5 * 4.5;
+  let best = null, bestD2 = ENTER_RADIUS_SQ;
   for (const c of traffic.cars) {
     if (c.dead) continue;
     const d2 = (c.x - player.x) ** 2 + (c.z - player.z) ** 2;
@@ -528,7 +534,7 @@ function tick(now) {
       const spd = sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
       const len = Math.hypot(f, s) || 1;
       const dirX = f / len, dirZ = s / len;
-      // Camera-relative movement.
+      // Camera-relative movement on foot; camYaw follows the boom behind the body.
       if (f || s) {
         const worldAng = camYaw + Math.atan2(dirX, dirZ);
         player.heading = worldAng;
