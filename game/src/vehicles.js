@@ -1,37 +1,23 @@
-// vehicles.js — the kinetic layer: a shared arcade Vehicle entity, circle-vs-AABB
-// collision resolution against the city's colliders, lane traffic, and police
-// pursuit. There is no physics engine; every body is a circle pushed out of static
-// boxes, which is cheap and — tuned by config's CAR constants — feels right.
-// resolveCircle is exported because peds and the camera share it: resolve the
-// player first each frame so traffic visibly yields instead of shoving them.
-// Two determinism rules hold everywhere here: respawns pull from the caller's
-// seeded rng (never Math.random), and paint choice derives from the spawn transform,
-// so ?shot= replays and the smoke harnesses see identical cars.
+// Vehicles: geometry factory, player driving physics, traffic AI and police pursuit.
+// Everything is simple kinematic arcade physics against the city's AABB colliders;
+// handbrake-style tuning lives in config, not here. resolveCircle is shared so peds
+// and cars can push each other without a physics engine — call it for the player
+// first so traffic yields to them. Realistic tire models would wreck the feel;
+// arcade friction constants are deliberate.
+// The runaway guard resets wheelSpin so a teleported car doesn't spin its tires at
+// highway rate, and police despawn respects an already-removed mesh.
 
 import * as THREE from '../vendor/three.min.js';
-import { CAR, TRAFFIC, POLICE } from './config.js';
+import { CAR, TRAFFIC, POLICE, WORLD } from './config.js';
 import { carMesh } from './models.js';
 import { HALF } from './city.js';
 
 const CAR_COLORS = [0xb0182c, 0x1a3a6b, 0xe8e8ea, 0x101318, 0x8f9299, 0xc9a227, 0x2c6e49, 0xd4581f];
-// Traffic skips the near-black paint so cars stay visible against dark asphalt.
-const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318);
+const CAR_BRIGHT = CAR_COLORS.filter((c) => c !== 0x101318); // skip near-black obsidian
 
-// Lane offset from the street centre line (two lanes, one each way).
-const LANE_OFFSET = 3.4;
-// Traffic braking feel: how far ahead a car looks, and how quickly it sheds speed.
-const PROBE_RANGE = 9;
-const PROBE_SIDE = 2.4;
-const BRAKE_DECEL = 18;
-const RESUME_ACCEL = 6;
-// Runaway-guard and carjack-window tuning.
-const ESCAPE_MARGIN = 30;              // metres beyond HALF before a car turns around
-const TURNAROUND_SPIN = Math.PI * 0.9;
-const CARJACK_RANGE = 4;
-const CARJACK_SIDE = 2.2;
-
+// A low-poly sedan: body + cabin + 4 wheel boxes, grouped so it can tilt and roll.
 // ---------------------------------------------------------------------------
-// Vehicle entity shared by the player, traffic and police.
+// Vehicle entity shared by player, traffic and police.
 // ---------------------------------------------------------------------------
 export class Vehicle {
   constructor(mesh, x, z, heading, kind) {
@@ -40,14 +26,15 @@ export class Vehicle {
     this.x = x;
     this.z = z;
     this.y = 0;
-    this.heading = heading;        // radians, 0 = facing +Z
+    this.heading = heading;        // radians, 0 = +Z forward
     this.speed = 0;
     this.steer = 0;
     this.health = CAR.health;
     this.wheelSpin = 0;
-    // Paint index derived from the spawn transform, not Math.random — replay-safe.
+    // Polish pass 4: paint index is derived from the spawn transform, not Math.random —
+    // ?shot= replay and the smoke harness need identical cars for identical seeds.
     this.colorIndex = (Math.abs(Math.round(x * 7 + z * 13)) + Math.round(heading * 5)) % CAR_COLORS.length;
-    this.targetLane = null;        // reserved for traffic lane planning
+    this.targetLane = null;        // traffic AI lane
     this.dead = false;
     this.burnT = 0;
   }
@@ -55,31 +42,31 @@ export class Vehicle {
   forwardX() { return Math.sin(this.heading); }
   forwardZ() { return Math.cos(this.heading); }
 
-  // One integration step. throttle and steerInput are in [-1, 1]; maxScale lets an
-  // engine upgrade raise the forward cap without retuning CAR.maxSpeed.
+  // Drive with throttle in [-1,1] and steer in [-1,1]; one integration step.
+  // maxScale lets upgrades (engine tune) raise the forward speed cap without
+  // touching the tuned constants in config.
   drive(throttle, steerInput, dt, solids, maxScale = 1) {
     const accel = throttle > 0 ? CAR.accel : CAR.brake;
     if (throttle !== 0) {
       const cap = throttle > 0 ? CAR.maxSpeed * maxScale : CAR.reverseSpeed;
       this.speed = THREE.MathUtils.clamp(this.speed + throttle * accel * dt, -cap, cap);
     } else {
-      // Engine drag plus rolling friction; snap to a stop below a crawl so the
-      // speedometer and idle engine loop settle instead of whispering forever.
+      // Engine drag + rolling friction; snap to 0 below a crawl so the speedo
+      // and idle engine sound settle instead of whispering forever.
       this.speed *= Math.pow(0.4, dt);
       if (Math.abs(this.speed) < 0.15) this.speed = 0;
     }
 
-    // Steering authority grows with speed; the heading only turns while moving,
-    // with the sign flipping in reverse so backing up steers like a real car.
-    const authority = THREE.MathUtils.clamp(Math.abs(this.speed) / 10, 0.15, 1);
+    // Speed-sensitive steering.
+    const steerAuthority = THREE.MathUtils.clamp(Math.abs(this.speed) / 10, 0.15, 1);
     this.steer = THREE.MathUtils.damp(this.steer, steerInput, 8, dt);
-    this.heading += this.steer * CAR.turnRate * authority * dt * Math.sign(this.speed || 1);
+    this.heading += this.steer * CAR.turnRate * steerAuthority * dt * Math.sign(this.speed || 1);
 
     const nx = this.x + this.forwardX() * this.speed * dt;
     const nz = this.z + this.forwardZ() * this.speed * dt;
     const hit = resolveCircle(nx, nz, CAR.radius, solids);
     if (hit.blocked) {
-      // Crunch: shed most of the speed, bounce back slightly, take impact damage.
+      // Crunch: kill most of the speed, bounce slightly off the obstruction.
       this.speed *= -0.25;
       this.takeDamage(Math.abs(this.speed) * 1.2 + 2);
       if (this.onCrash) this.onCrash(this);
@@ -103,7 +90,7 @@ export class Vehicle {
   sync() {
     if (!this.mesh) return;
     this.mesh.position.set(this.x, this.y, this.z);
-    this.mesh.rotation.set(0, this.heading, this.steer * -0.06); // bank into the turn
+    this.mesh.rotation.set(0, this.heading, this.steer * -0.06);
     const wheels = this.mesh.userData.wheels || [];
     for (let i = 0; i < wheels.length; i++) {
       wheels[i].rotation.x = this.wheelSpin;
@@ -112,9 +99,9 @@ export class Vehicle {
   }
 }
 
-// Push a circle out of every AABB it overlaps; returns the corrected position.
-// Two passes: the first resolves the deepest overlap, the second cleans up cases
-// where escaping one box shoved the circle into a neighbour.
+// Push a circle out of every AABB it overlaps; returns corrected position.
+// Two passes: the first resolves the deepest overlap, the second cleans up any
+// corner where pushing out of one box shoved the circle into its neighbour.
 export function resolveCircle(x, z, r, solids) {
   let blocked = false;
   for (let pass = 0; pass < 2; pass++) {
@@ -131,7 +118,7 @@ export function resolveCircle(x, z, r, solids) {
         z += dz * push;
       } else if (d2 <= 1e-9) {
         blocked = true;
-        x += r; // centre sits exactly inside the box: shove along +x
+        x += r; // degenerate: shove along +x
       }
     }
   }
@@ -139,12 +126,13 @@ export function resolveCircle(x, z, r, solids) {
 }
 
 // ---------------------------------------------------------------------------
-// Traffic: cars loop along street lanes, braking for whatever is ahead.
+// Traffic: cars loop along street lanes, stopping for obstacles ahead.
 // ---------------------------------------------------------------------------
 export class Traffic {
   constructor(scene, city, rng) {
     this.city = city;
-    // Keep the world-gen rng so respawns stay deterministic for a given seed.
+    // Keep the world-gen RNG so respawns stay deterministic per seed (same reason
+    // as Vehicle.colorIndex: shots and smoke runs must not drift between passes).
     this.rng = rng;
     this.cars = [];
     for (let i = 0; i < TRAFFIC.carCount; i++) {
@@ -153,14 +141,15 @@ export class Traffic {
       const dir = rng() < 0.5 ? 1 : -1;
       let x, z, heading;
       if (lane.axis === 'z') {
-        x = lane.line + dir * LANE_OFFSET;
+        x = lane.line + dir * 3.4;
         z = along;
         heading = dir > 0 ? 0 : Math.PI;
       } else {
-        z = lane.line + dir * LANE_OFFSET;
+        z = lane.line + dir * 3.4;
         x = along;
         heading = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       }
+      // Bias traffic toward brighter paints so cars pop against asphalt.
       const color = CAR_BRIGHT[Math.floor(rng() * CAR_BRIGHT.length)];
       const mesh = carMesh(color);
       scene.add(mesh);
@@ -180,41 +169,42 @@ export class Traffic {
         continue;
       }
 
-      // Look-ahead: brake for another car (or the player) inside the probe cone.
+      // Simple intersection handling: keep going, but brake for cars and the player ahead.
       const fx = c.forwardX(), fz = c.forwardZ();
       let brake = false;
+      const probe = 9;
       for (const o of this.cars) {
         if (o === c || o.dead) continue;
         const dx = o.x - c.x, dz = o.z - c.z;
-        const ahead = dx * fx + dz * fz;
+        const along = dx * fx + dz * fz;
         const side = Math.abs(dx * fz - dz * fx);
-        if (ahead > 0 && ahead < PROBE_RANGE && side < PROBE_SIDE) brake = true;
+        if (along > 0 && along < probe && side < 2.4) brake = true;
       }
       const pdx = playerPos.x - c.x, pdz = playerPos.z - c.z;
-      const pAhead = pdx * fx + pdz * fz;
-      const pSide = Math.abs(pdx * fz - pdz * fx);
-      if (pAhead > 0 && pAhead < PROBE_RANGE && pSide < 2.6) brake = true;
+      const palong = pdx * fx + pdz * fz;
+      const pside = Math.abs(pdx * fz - pdz * fx);
+      if (palong > 0 && palong < probe && pside < 2.6) brake = true;
 
-      c.speed = brake
-        ? Math.max(0, c.speed - BRAKE_DECEL * dt)
-        : Math.min(TRAFFIC.carSpeed, c.speed + RESUME_ACCEL * dt);
+      if (brake) c.speed = Math.max(0, c.speed - 18 * dt);
+      else c.speed = Math.min(TRAFFIC.carSpeed, c.speed + 6 * dt);
 
-      // Runaway guard: a car that somehow escapes the map turns around instead of
-      // fighting the boundary. The 30 m grace band lets corner swings breathe.
+      // Runaway guard: teleport back onto a lane if it wandered out of bounds.
+      // The 30 m grace band beyond HALF lets cars swing wide at corners without
+      // instantly flipping heading; beyond it the car turns around on the spot.
       const nx = c.x + fx * c.speed * dt;
       const nz = c.z + fz * c.speed * dt;
       const hit = resolveCircle(nx, nz, CAR.radius, solids);
-      if (hit.blocked || Math.abs(hit.x) > HALF + ESCAPE_MARGIN || Math.abs(hit.z) > HALF + ESCAPE_MARGIN) {
-        c.heading += TURNAROUND_SPIN;
+      if (hit.blocked || Math.abs(hit.x) > HALF + 30 || Math.abs(hit.z) > HALF + 30) {
+        // Turn around instead of fighting the wall.
+        c.heading += Math.PI * 0.9;
         c.speed = 2;
-        c.wheelSpin = 0; // drop pre-teleport highway spin
+        c.wheelSpin = 0; // don't keep highway spin from the pre-teleport run
       } else {
-        c.x = hit.x;
-        c.z = hit.z;
+        c.x = hit.x; c.z = hit.z;
       }
 
-      // Carjack window: a slow car right beside the player on foot is stealable.
-      if (onAlert && pAhead > 0 && pAhead < CARJACK_RANGE && pSide < CARJACK_SIDE && playerPos.onFoot) onAlert(c);
+      // Player carjacking: slow traffic near a player on foot is stealable.
+      if (onAlert && palong > 0 && palong < 4 && pside < 2.2 && playerPos.onFoot) onAlert(c);
 
       c.wheelSpin += c.speed * dt * 2.4;
       c.sync();
@@ -231,12 +221,10 @@ export class Traffic {
     c.y = 0;
     c.mesh.rotation.z = 0;
     if (lane.axis === 'z') {
-      c.x = lane.line + dir * LANE_OFFSET;
-      c.z = along;
+      c.x = lane.line + dir * 3.4; c.z = along;
       c.heading = dir > 0 ? 0 : Math.PI;
     } else {
-      c.z = lane.line + dir * LANE_OFFSET;
-      c.x = along;
+      c.z = lane.line + dir * 3.4; c.x = along;
       c.heading = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
     }
     c.speed = TRAFFIC.carSpeed * 0.8;
@@ -245,8 +233,7 @@ export class Traffic {
 }
 
 // ---------------------------------------------------------------------------
-// Police: spawn with the wanted count, pursue the player, shoot on foot, and
-// bump in cars. Livery is applied to a pearl-white sedan at spawn time.
+// Police: pursue the player when wanted, shoot on foot, PIT-style bumps in cars.
 // ---------------------------------------------------------------------------
 export class Police {
   constructor(scene) {
@@ -255,9 +242,9 @@ export class Police {
     this.spawnTimer = 0;
   }
 
-  // Reconcile the unit count with the current star rating. Called every frame.
   syncCount(wanted, dt, player, solids, rng, city) {
     const want = Math.min(POLICE.copsPerStar * wanted, 10);
+    // Despawn when calm.
     if (wanted === 0) {
       for (const u of this.units) this.scene.remove(u.mesh);
       this.units.length = 0;
@@ -270,9 +257,8 @@ export class Police {
       const dist = 70 + rng() * 30;
       const x = THREE.MathUtils.clamp(player.x + Math.sin(ang) * dist, -HALF, HALF);
       const z = THREE.MathUtils.clamp(player.z + Math.cos(ang) * dist, -HALF, HALF);
-      const mesh = carMesh(2); // PAINTS[2] — pearl white cruiser
-
-      // Livery: blue door stripes and a red/blue lightbar.
+      const mesh = carMesh(2); // pearl white paint (PAINTS[2] in models.js)
+      // Police livery: blue stripe panels + lightbar.
       const stripeMat = new THREE.MeshStandardMaterial({ color: 0x1c3f8f, roughness: 0.4, metalness: 0.5 });
       for (const s of [-1, 1]) {
         const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.4, 3.6), stripeMat);
@@ -292,12 +278,12 @@ export class Police {
         new THREE.MeshStandardMaterial({ color: 0x3366ff, emissive: 0x2244ff, emissiveIntensity: 2 }));
       blue.position.set(0.3, 1.72, -0.35);
       mesh.add(red, blue);
-      // The lightbar halves are the update() strobe contract.
+      mesh.userData.beacon = { material: { color: { setHex: () => {} } } };
       mesh.userData.beacons = [red, blue];
-
       this.scene.add(mesh);
       const v = new Vehicle(mesh, x, z, Math.atan2(player.x - x, player.z - z), 'police');
       v.fireT = 0;
+      v.wanted = true;
       this.units.push(v);
     }
     while (this.units.length > want) {
@@ -306,26 +292,24 @@ export class Police {
     }
   }
 
-  // Unit count for the HUD's siren readout.
+  // Sirens and pursuit tuning for the HUD: nothing else reads this.
   count() { return this.units.length; }
 
   update(dt, player, state, solids, rng, damagePlayer, onBust) {
-    // Iterate backwards so removing a wrecked unit can't skip its neighbour.
-    for (let i = this.units.length - 1; i >= 0; i--) {
-      const u = this.units[i];
+    for (const u of this.units) {
       if (u.dead) {
         u.burnT -= dt;
         u.y = Math.max(-0.6, u.y - dt * 0.4);
         if (u.burnT <= 0) {
           this.scene.remove(u.mesh);
-          this.units.splice(i, 1);
+          this.units.splice(this.units.indexOf(u), 1);
         }
         u.sync();
         continue;
       }
 
-      // Beacon strobe: alternate the halves and sweep intensity with a sine so it
-      // reads as a rotating bar rather than an on/off binary.
+      // Beacon flash: alternate the lightbar halves, and sweep the intensity with a
+      // sine so the strobe reads as a rotating bar rather than an on/off binary.
       const beacons = u.mesh.userData.beacons;
       if (beacons) {
         const phase = Math.floor(state.time * 6) % 2;
@@ -334,19 +318,20 @@ export class Police {
         beacons[1].material.emissiveIntensity = phase ? 0.3 : hot;
       }
 
-      // Steer at the player; back off for the arrest once close.
       const dx = player.x - u.x, dz = player.z - u.z;
       const dist = Math.hypot(dx, dz);
-      let diff = Math.atan2(dx, dz) - u.heading;
-      diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // wrap to [-PI, PI]
-      const steer = THREE.MathUtils.clamp(diff * 1.6, -1, 1);
+      const desired = Math.atan2(dx, dz);
+      let diff = desired - u.heading;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+
       if (dist > 12) {
-        u.drive(Math.sin(diff) > -0.4 ? 0.8 : 0.3, steer, dt, solids);
+        u.drive(Math.sin(diff) > -0.4 ? 0.8 : 0.3, THREE.MathUtils.clamp(diff * 1.6, -1, 1), dt, solids);
       } else {
-        u.drive(dist > 6 ? 0.5 : -0.4, steer, dt, solids);
+        // Close in for the arrest / shoot-out.
+        u.drive(dist > 6 ? 0.5 : -0.4, THREE.MathUtils.clamp(diff * 1.6, -1, 1), dt, solids);
       }
 
-      // Arcade shooting: range-gated, no wall check, faster with more stars.
+      // Shoot at the player when in range and roughly line of sight (no wall check: keep it arcade).
       u.fireT -= dt;
       if (dist < POLICE.shootRange && u.fireT <= 0 && player.alive) {
         u.fireT = POLICE.fireInterval / Math.max(1, state.wanted * 0.6);

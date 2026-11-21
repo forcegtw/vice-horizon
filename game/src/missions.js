@@ -1,57 +1,36 @@
-// missions.js — the story chain: boost a car, run cash caches, clear rivals.
-// Each job owns its own update branch, so adding a fourth never touches the
-// main loop. The state machine steps forward only; restart means a full re-init
-// through start(), never rewinding steps. HUD text is touched only on state
-// transitions, and rewards are credited exactly once inside the completion
-// branch — never per frame.
-// pointAtNearest tolerates a missing player ref: shot staging and the smoke
-// harness call start() before main.js has handed over the player.
+// Missions: objective markers, briefs, completion checks and rewards.
+// Three chained jobs drive the open world: boost a car, run cash, clear lookouts.
+// Each job owns its own update so adding a fourth never means touching the main loop.
+// Mission state machine steps forward only; restart = full re-init, never rewinding steps.
+// Objective markers poll at low rate; only state transitions touch HUD text.
+// Rewards are credited once, inside the completion branch — never in the update loop.
+// pointAtNearest tolerates a missing player ref (shot staging calls start() before
+// main.js hands over the player).
 
 import * as THREE from '../vendor/three.min.js';
-import { MISSIONS, CASH_RUN } from './config.js';
+import { MISSIONS, WORLD, CASH_RUN } from './config.js';
 import { HALF } from './city.js';
 
-// Objective geometry tuning: a soft halo disc on the ground, a thin bright ring,
-// and a slim light pillar. Reduced opacity tints the street without washing out
-// the view; children[0] is the pillar, whose opacity the loop pulses.
-const MARKER_PILLAR_RADIUS = 2.4;
-const MARKER_HALO_RADIUS = 3.1;
-const MARKER_RING_INNER = 2.2;
-const MARKER_RING_OUTER = 2.7;
-const MARKER_PULSE_BASE = 0.35;
-const MARKER_PULSE_SWING = 0.12;
-
-// Pick-up radii per objective kind, in metres.
-const CASH_RADIUS = 3;
-const CAR_RADIUS = 4.5;
-const DOCK_RADIUS = 6;
-
-// The garage dock every boosted car is delivered to, near the east map edge.
-const DOCK_X = HALF - 20;
-const DOCK_Z = 8;
-
-// Rival lookouts the eliminate mission asks for; their HP is bookkept by
-// main.js's attack(), which flips mesh.userData.dead when one drops.
-const RIVAL_COUNT = 3;
-
-// A glowing objective marker: translucent cylinder pillar + halo disc + ring.
+// A glowing ground cylinder marking an objective, plus a floating arrow.
+// Reduced opacity so the marker tints the street without washing out the view:
+// a soft halo disc, a thin ring at ground level and a slim light pillar.
 export function makeMarker(color = 0xffc94a) {
   const g = new THREE.Group();
-  const pillar = new THREE.Mesh(
-    new THREE.CylinderGeometry(MARKER_PILLAR_RADIUS, MARKER_PILLAR_RADIUS, 3.2, 16, 1, true),
+  const cyl = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.4, 2.4, 3.2, 16, 1, true),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false })
   );
-  pillar.position.y = 1.6;
-  g.add(pillar);
+  cyl.position.y = 1.6;
+  g.add(cyl);
   const halo = new THREE.Mesh(
-    new THREE.CircleGeometry(MARKER_HALO_RADIUS, 24),
+    new THREE.CircleGeometry(3.1, 24),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false })
   );
   halo.rotation.x = -Math.PI / 2;
   halo.position.y = 0.05;
   g.add(halo);
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(MARKER_RING_INNER, MARKER_RING_OUTER, 24),
+    new THREE.RingGeometry(2.2, 2.7, 24),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
   );
   ring.rotation.x = -Math.PI / 2;
@@ -66,19 +45,18 @@ export class Missions {
     this.rng = rng;
     this.city = city;
     this.sfx = sfx;
-    this.index = 0;          // current story job
+    this.index = 0;          // current mission
     this.state = 'idle';     // idle | active | complete | done-all
     this.marker = makeMarker();
     this.marker.visible = false;
     scene.add(this.marker);
-    this.targets = [];       // {x, z, kind, done, mesh?}
+    this.targets = [];       // {x, z, kind, ref}
     this.timer = 0;
     this.collected = 0;
     this.rewardPending = 0;
     this.cashPickups = [];
     this.msg = '';
     this.msgT = 0;
-    this.playerRef = null;
   }
 
   message(text, seconds = 4) {
@@ -88,7 +66,7 @@ export class Missions {
 
   current() { return MISSIONS[this.index] || null; }
 
-  // Begin (or restart) the current mission from a clean slate.
+  // Begin (or restart) the current mission.
   start() {
     const m = this.current();
     if (!m) return;
@@ -99,7 +77,7 @@ export class Missions {
     this.marker.visible = true;
 
     if (m.kind === 'car-delivery') {
-      // A glowing coupe waits on a street corner; the marker points at it.
+      // Park a glowing coupe on a random street corner; the marker points at it.
       const spot = this.randomStreetSpot();
       this.targets.push({ x: spot.x, z: spot.z, kind: 'car', done: false });
       this.marker.position.set(spot.x, 0, spot.z);
@@ -113,7 +91,7 @@ export class Missions {
       this.pointAtNearest();
       this.message(`MISSION — ${m.name}: ${m.brief}`);
     } else if (m.kind === 'eliminate') {
-      for (let i = 0; i < RIVAL_COUNT; i++) {
+      for (let i = 0; i < 3; i++) {
         const spot = this.randomStreetSpot();
         this.targets.push({ x: spot.x, z: spot.z, kind: 'rival', done: false, mesh: null });
       }
@@ -122,25 +100,22 @@ export class Missions {
     }
   }
 
-  // A reachable spot on the road grid: a street line at a random offset, kept
-  // inside 80% of the map so objectives never spawn in the far margin.
   randomStreetSpot() {
     const lane = this.city.roadLines[Math.floor(this.rng() * this.city.roadLines.length)];
     const along = (this.rng() - 0.5) * 2 * HALF * 0.8;
     return lane.axis === 'z' ? { x: lane.line, z: along } : { x: along, z: lane.line };
   }
 
-  // Swing the marker to the nearest live objective; before main.js binds the
-  // player (shot staging, smoke runs) fall back to the first live target.
   pointAtNearest() {
-    const live = this.targets.filter((t) => !t.done);
+    const live = this.targets.filter(t => !t.done);
     if (!live.length) return;
+    // Before main.js binds the player (shot staging, smoke harness) fall back to
+    // the first live target instead of dereferencing undefined.
     if (!this.playerRef) {
       this.marker.position.set(live[0].x, 0, live[0].z);
       return;
     }
-    let best = live[0];
-    let bd = Infinity;
+    let best = live[0], bd = Infinity;
     for (const t of live) {
       const d = (t.x - this.playerRef.x) ** 2 + (t.z - this.playerRef.z) ** 2;
       if (d < bd) { bd = d; best = t; }
@@ -155,13 +130,14 @@ export class Missions {
 
   setPlayerRef(p) { this.playerRef = p; }
 
-  // Per-frame update; `world` carries the shared clock for marker pulsing.
+  // Per-frame update; world gives collisions with cars/peds via callbacks.
   update(dt, player, world) {
     if (this.msgT > 0) this.msgT -= dt;
     if (this.state !== 'active') return;
     const m = this.current();
 
-    const pulse = MARKER_PULSE_BASE + Math.sin(world.time * 4) * MARKER_PULSE_SWING;
+    // Marker pulse.
+    const pulse = 0.35 + Math.sin(world.time * 4) * 0.12;
     this.marker.children[0].material.opacity = pulse;
 
     if (m.kind === 'collect') {
@@ -181,7 +157,7 @@ export class Missions {
       allDone = false;
       const d = Math.hypot(t.x - player.x, t.z - player.z);
 
-      if (t.kind === 'cash' && d < CASH_RADIUS) {
+      if (t.kind === 'cash' && d < 3) {
         t.done = true;
         this.collected++;
         this.sfx.pickup();
@@ -190,15 +166,15 @@ export class Missions {
       } else if (t.kind === 'rival' && t.mesh && t.mesh.userData.dead) {
         t.done = true;
         this.collected++;
-        this.message(`Lookout down (${this.collected}/${RIVAL_COUNT})`, 2.5);
+        this.message(`Lookout down (${this.collected}/3)`, 2.5);
         this.pointAtNearest();
-      } else if (t.kind === 'car' && player.inCar && d < CAR_RADIUS) {
-        // Phase 2 of the boost: drive the coupe to the garage dock.
+      } else if (t.kind === 'car' && player.inCar && d < 4.5) {
+        // Phase 2: drive it to the garage dock near the map edge.
         t.done = true;
-        this.targets.push({ x: DOCK_X, z: DOCK_Z, kind: 'dock', done: false });
-        this.marker.position.set(DOCK_X, 0, DOCK_Z);
+        this.targets.push({ x: HALF - 20, z: 8, kind: 'dock', done: false });
+        this.marker.position.set(HALF - 20, 0, 8);
         this.message('Nice boost. Now drop it at the garage dock.', 4);
-      } else if (t.kind === 'dock' && player.inCar && d < DOCK_RADIUS) {
+      } else if (t.kind === 'dock' && player.inCar && d < 6) {
         t.done = true;
         this.message('Delivery complete.', 3);
       }
@@ -215,9 +191,9 @@ export class Missions {
     }
   }
 
-  // Drain a passed mission's payout. Deliberately separate from update() so a
-  // payout can never double-fire from a re-entered update branch: the loop
-  // calls this once per frame.
+  // Player collects a passed mission's payout (called from main loop).
+  // Kept separate from update() so a payout can never double-fire from a
+  // re-entered update branch; the loop drains it once per frame.
   collectReward(state) {
     if (this.rewardPending > 0) {
       state.money += this.rewardPending;
@@ -225,8 +201,7 @@ export class Missions {
     }
   }
 
-  // Advance the chain: collect a completed job and either kick off the next one
-  // or, when the table is exhausted, settle into the done-all ending.
+  // Called when the player finishes a mission on foot near a marker: advance.
   advance() {
     if (this.state === 'complete' || this.state === 'done-all') {
       this.index++;
@@ -247,9 +222,5 @@ export class Missions {
     this.marker.visible = false;
     this.clearPickups();
     this.rewardPending = 0;
-    // Clear the banner too, so a reset never leaves a stale "MISSION PASSED"
-    // hanging on screen until its old timer runs out.
-    this.msg = '';
-    this.msgT = 0;
   }
 }

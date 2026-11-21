@@ -1,15 +1,13 @@
-// input.js — keyboard state, pointer look and the action-binding layer.
-// Key state is a Set of event.code, so layout remaps (AZERTY and friends) stay
-// consistent; keydown repeat events are ignored — holding a key relies on the
-// Set alone. preventDefault is scoped to the keys a browser would otherwise
-// scroll or navigate with, so game letters (F, T, G…) stay free for devtools.
-// Blur clears keys, taps and the mouse button, so resume starts from a clean
-// slate and alt-tab can never leave the trigger held down.
-// Actions are an action -> codes map: rebinding mid-session is
-// Input.rebind('enter', ['KeyF']), never an edit inside moveAxis or the loop.
-
-// Keys the browser would otherwise scroll or navigate with are listed once; the
-// keydown handler preventDefaults exactly this set.
+// Input handling: keyboard state, pointer look, and pause/menu toggles.
+// Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay consistent;
+// keydown repeat events are ignored — holding a key relies on the Set state only.
+// preventDefault is intentionally scoped to game keys only so browser shortcuts keep working.
+// Blur clears keys, tapped state and the pressed mouse button, so resume starts
+// from a clean slate and refocusing after an alt-tab can't leave the weapon firing.
+// Game actions are defined as an action->codes map so rebinding is a one-liner
+// (Input.rebind('enter', ['KeyF'])) instead of an edit inside moveAxis / the loop.
+// Keys the browser would otherwise scroll or navigate with (arrows, Space, Tab)
+// are listed here once; the keydown handler preventDefaults exactly this set.
 const BROWSER_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'];
 
 export class Input {
@@ -41,14 +39,12 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       this._pressedOnce.add(e.code);
+      // preventDefault only on keys the browser would otherwise scroll / navigate
+      // with; game letters (F, T, G…) stay untouched so typing in devtools works.
       if (BROWSER_KEYS.includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => {
-      this.keys.clear();
-      this.firing = false;
-      this.dragging = false;
-    });
+    window.addEventListener('blur', () => { this.keys.clear(); this.firing = false; this.dragging = false; });
 
     canvas.addEventListener('pointerdown', (e) => {
       this.dragging = true;
@@ -69,10 +65,14 @@ export class Input {
 
   // True exactly once per physical press, consumed on read.
   tapped(code) {
-    return this._pressedOnce.delete(code);
+    if (this._pressedOnce.has(code)) {
+      this._pressedOnce.delete(code);
+      return true;
+    }
+    return false;
   }
 
-  // Rebind an action to a new set of codes (swap mid-session, no restart).
+  // Rebind an action to a new set of codes (swap mid-session with no restart).
   rebind(action, codes) {
     if (action in this.bindings) this.bindings[action] = codes.slice();
   }
@@ -82,7 +82,7 @@ export class Input {
     return this.bindings[action].some((c) => this.tapped(c));
   }
 
-  // Movement axes for this frame: forward and strafe, each in [-1, 1].
+  // Movement axes for the current frame: forward, strafe in [-1, 1].
   moveAxis() {
     let f = 0, s = 0;
     if (this.bindings.forward.some((c) => this.down(c))) f += 1;
@@ -92,15 +92,12 @@ export class Input {
     return { f, s };
   }
 
-  // Hand over the accumulated pointer delta and reset it.
   consumeMouse() {
     const d = { x: this.mouseDX, y: this.mouseDY };
-    this.mouseDX = 0;
-    this.mouseDY = 0;
+    this.mouseDX = 0; this.mouseDY = 0;
     return d;
   }
 
-  // Called once per frame by the main loop: one-shot taps live a single frame.
   endFrame() {
     this._pressedOnce.clear();
   }

@@ -1,14 +1,16 @@
-// wanted.js — heat-driven police response. Crimes bank heat; heat crossing star
-// thresholds raises state.wanted, which Police.syncCount reads to size the
-// response. Decay only runs after SIGHT_MEMORY seconds with no live unit in
-// range, so heat sticks through a chase and bleeds once nobody has eyes on the
-// player. The HUD renders the stars; this module stays purely numeric so shot
-// staging and saves can write state.wanted directly without a round-trip here.
+// Wanted system: heat-driven star levels, escalating police response, pursuit
+// timers and heat decay. This is the gameplay layer over Police.syncCount —
+// crimes call Wanted.crime(), missions can raise or clear heat, and the loop
+// only has to call Wanted.update(dt, ...).
+// Design rule: the star display stays in HUD; this module owns only the numeric
+// heat and its escalation/decay timers, so save/shot staging can set wanted
+// directly without going through here. heatRatio() clamps to [0, 1] so an
+// over-banked heat value can't push the heat bar past full.
 
 import { POLICE } from './config.js';
 
-// Heat banked per crime kind. Unlisted kinds still cost DEFAULT_HEAT so a typo
-// can never make a crime free.
+// Heat banked per crime type; a full star is 100 heat.
+// policeCarjack and copDestroyed outrank carjack: robbing the law costs more.
 const CRIME_HEAT = {
   carjack: 60,
   policeCarjack: 110,
@@ -17,73 +19,69 @@ const CRIME_HEAT = {
   gunshot: 25,
   copDestroyed: 90,
 };
-const DEFAULT_HEAT = 40;
-const HEAT_PER_STAR = 100;   // missionHeat floors are quoted in stars
+
 const STAR_THRESHOLDS = [40, 110, 220, 360, 520]; // heat needed for 1..5 stars
-const DECAY_MPS = 6;         // heat bleed per second while out of sight
-const SIGHT_MEMORY = 14;     // no-contact seconds before decay kicks in
-const GETAWAY_GRACE = 4;     // extra sight seconds while driving: getaways feel earned
+const DECAY_PER_SEC = 6;          // heat bleeds when out of police sight
+const PURSUIT_TIMEOUT = 14;       // s of no cop in range before decay kicks in
+const IN_CAR_BONUS = 4;           // extra sightT seconds granted while driving: getaways feel earned
+const RAMP_PER_STAR = 1;          // extra cars per star handled via copsPerStar
 
 export class Wanted {
   constructor(state, sfx, hud) {
-    this.state = state;   // shared game state; state.wanted is the star count
+    this.state = state;   // shared game state (state.wanted is the star count)
     this.sfx = sfx;
     this.hud = hud;
     this.heat = 0;
-    this.sightT = SIGHT_MEMORY; // seconds since a cop was last within sightRange
+    this.sightT = PURSUIT_TIMEOUT; // time since a cop was last within sightRange
     this.lastStars = 0;
     this.crimeCount = 0;
     this.escaped = false;
   }
 
-  // Register a crime. amount multiplies the heat (e.g. a spree); negative or
-  // unknown inputs degrade safely instead of zeroing or NaN-ing the bank.
+  // Register a crime. amount is an optional multiplier (e.g. spree); an unknown kind
+  // falls back to the generic 40-heat default so a typo can never zero out a crime.
   crime(kind, amount = 1) {
-    const add = Math.max(0, CRIME_HEAT[kind] ?? DEFAULT_HEAT) * Math.max(0, amount);
+    const add = Math.max(0, (CRIME_HEAT[kind] ?? 40)) * Math.max(0, amount);
     this.heat += add;
     this.crimeCount += amount;
-    this.sightT = SIGHT_MEMORY;
-    this._sync(true);
+    this.sightT = PURSUIT_TIMEOUT;
+    this._syncStars(true);
   }
 
-  // Missions call this: taking the job raises a fixed floor of heat, never
-  // lowering whatever the player has already banked.
+  // Missions call this: committing the job raises a fixed floor of heat.
   missionHeat(stars) {
-    const floor = Math.min(POLICE.maxWanted, stars) * HEAT_PER_STAR;
-    if (this.heat < floor) {
-      this.heat = floor;
-      this._sync(true);
+    const target = Math.min(POLICE.maxWanted, stars) * 100;
+    if (this.heat < target) {
+      this.heat = target;
+      this._syncStars(true);
     }
   }
 
-  // Bribe / garage / mission handoff: wipes heat entirely. A stale cooldown
-  // would keep ticking on an already-clean state, so it goes too.
+  // Bribe / garage / mission handoff: clears heat entirely.
   clear(reason = '') {
     if (this.heat <= 0) return;
     this.heat = 0;
     this.state.wanted = 0;
-    this.state.wantedCooldown = 0;
-    this.sightT = SIGHT_MEMORY;
+    this.state.wantedCooldown = 0; // stale cooldown would keep ticking on an already-clean state
+    this.sightT = PURSUIT_TIMEOUT;
     this.escaped = reason === 'escape';
     if (this.hud) this.hud.toast(reason === 'escape' ? 'You lost the heat.' : 'Heat cleared.');
   }
 
-  // Direct heat writer for respawn forgiveness and scripted events. Bypasses
+  // Direct heat writer for respawn forgiveness and scripted events: bypasses
   // crime() so a partial wipe never re-announces a star the player still has.
   setHeat(v) {
     this.heat = Math.max(0, v);
-    this._sync(false);
+    this._syncStars(false);
   }
 
   stars() {
     let s = 0;
-    for (const t of STAR_THRESHOLDS) {
-      if (this.heat >= t) s++;
-    }
+    for (const t of STAR_THRESHOLDS) if (this.heat >= t) s++;
     return Math.min(s, POLICE.maxWanted);
   }
 
-  _sync(announce) {
+  _syncStars(announce) {
     const prev = this.state.wanted;
     const next = this.stars();
     this.state.wanted = next;
@@ -96,45 +94,45 @@ export class Wanted {
     }
   }
 
-  // Per-frame: track whether cops still have sight, and decay heat when they
-  // don't. Also keeps wantedCooldown bookkeeping in step with main.js semantics.
+  // Per-frame: track whether cops still have sight, decay heat when they don't.
   update(dt, player, police, inCar) {
-    // Line-of-sight proxy: any live unit within sightRange keeps the timer hot.
+    // Line-of-sight proxy: any live cop within sightRange keeps the timer hot.
     let seen = false;
     for (const u of police.units) {
       if (u.dead) continue;
-      if (Math.hypot(u.x - player.x, u.z - player.z) < POLICE.sightRange) {
-        seen = true;
-        break;
-      }
+      const d = Math.hypot(u.x - player.x, u.z - player.z);
+      if (d < POLICE.sightRange) { seen = true; break; }
     }
     if (seen) {
-      this.sightT = SIGHT_MEMORY;
-      if (inCar) this.sightT += GETAWAY_GRACE;
+      this.sightT = PURSUIT_TIMEOUT;
+      // Evading at speed stretches the decay timer slightly: fast getaways feel earned.
+      if (inCar) this.sightT += IN_CAR_BONUS;
       this.escaped = false;
     } else {
       this.sightT -= dt;
     }
 
     if (this.heat > 0 && this.sightT <= 0) {
+      this.heat = Math.max(0, this.heat - DECAY_PER_SEC * dt);
       const before = this.state.wanted;
-      this.heat = Math.max(0, this.heat - DECAY_MPS * dt);
-      this._sync(this.stars() !== before);
+      this._syncStars(this.stars() !== before);
       if (this.heat <= 0 && !this.escaped) this.clear('escape');
     }
 
+    // despawnCooldown bookkeeping mirrors main.js semantics.
     if (this.state.wanted > 0) {
       this.state.wantedCooldown -= dt;
     }
   }
 
-  // HUD helper: progress toward the next star within the current band, clamped
-  // to [0, 1] — an over-banked heat can never push the bar past full.
+  // HUD: percent progress toward the next star (for a heat bar), clamped to [0, 1].
   heatRatio() {
+    // Progress toward the NEXT star within the current band (1.0 = full at 5 stars).
     const s = this.stars();
     if (s >= POLICE.maxWanted) return 1;
-    const low = s === 0 ? 0 : STAR_THRESHOLDS[s - 1];
-    const high = STAR_THRESHOLDS[s];
-    return Math.max(0, Math.min(1, (this.heat - low) / (high - low)));
+    const cur = s === 0 ? 0 : STAR_THRESHOLDS[s - 1];
+    const next = STAR_THRESHOLDS[s];
+    const r = (this.heat - cur) / (next - cur);
+    return Math.max(0, Math.min(1, r));
   }
 }

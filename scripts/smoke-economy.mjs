@@ -1,9 +1,5 @@
-// Plain-node smoke harness for the sim-side systems: wanted, weather, radio,
-// economy. Imports the real modules with tiny mocks (no THREE scene, no
-// WebAudio, no localStorage) and walks the update paths a browser tick would,
-// so import-order and TDZ failures surface without launching a browser.
-// Pass signal: exit 0 and the trailing "SMOKE OK" line. (Node also prints a
-// benign MODULE_TYPELESS_PACKAGE_JSON warning; it is not a failure.)
+// Node smoke test: import each new module with minimal mocks and exercise the
+// update paths so TDZ / runtime errors surface without a browser.
 import { Wanted } from '../game/src/wanted.js';
 import { Weather } from '../game/src/weather.js';
 import { Radio } from '../game/src/radio.js';
@@ -23,7 +19,7 @@ const mockCity = () => ({
   roadLines: [{ axis: 'z', line: 0 }, { axis: 'x', line: 84 }],
 });
 
-// --- wanted: heat climbs per crime, decays while no cops watch, clears ---
+// wanted
 const state = { money: 0, wanted: 0, wantedCooldown: 0 };
 const sfx = { wantedUp: noop, cash: noop, pickup: noop };
 const hud = { toast: (t) => console.log('toast:', t) };
@@ -33,14 +29,12 @@ console.log('wanted after carjack:', state.wanted, 'heat', Math.round(w.heat));
 w.crime('policeCarjack');
 w.crime('pedHit');
 console.log('wanted stack:', state.wanted);
-// 60 × 0.1 s sweeps the whole decay window with no cops in sight.
-const DECAY_STEPS = 60;
-for (let i = 0; i < DECAY_STEPS; i++) w.update(0.1, { x: 0, z: 0 }, { units: [] }, false);
+for (let i = 0; i < 60; i++) w.update(0.1, { x: 0, z: 0 }, { units: [] }, false);
 console.log('after decay (no cops):', state.wanted, 'heat', Math.round(w.heat));
 w.clear('escape');
 console.log('cleared:', state.wanted, w.heat);
 
-// --- weather: a full cycle must move the road surface between dry and wet ---
+// weather
 import * as THREE from '../game/vendor/three.min.js';
 const scene = mockScene();
 const city = mockCity();
@@ -52,14 +46,13 @@ console.log('weather phase:', weather.name, 'intensity', weather.intensity.toFix
   'wetness', weather.wetness.toFixed(2), 'label', weather.label());
 console.log('road roughness after storm cycle:', city.road.material.roughness.toFixed(2));
 
-// --- radio: in-car state and station cycling off the sfx bus ---
+// radio
 const radio = new Radio(sfx);
 radio.setInCar(true);
 console.log('radio label in car:', radio.label());
 console.log('cycle:', radio.next(), radio.next(), radio.prev());
 
-// --- economy: ledger bound to state, tuning perks, and the shop loop ---
-// (no localStorage under node — the module's load path catches that)
+// economy (no localStorage in node — _load catch handles it)
 const eco = new Economy(scene, city, rng);
 eco.bind(state);
 console.log('stations built:', eco.shops.length);
@@ -71,7 +64,7 @@ console.log('speed multiplier:', eco.speedMultiplier(), 'armor cap:', eco.armorC
 eco.upgrades.speed = true;
 console.log('tuned speed multiplier:', eco.speedMultiplier());
 
-// --- shop proximity: standing in range opens the menu, buying applies, leaving closes ---
+// shop proximity flow
 const shop = eco.shops[0];
 const player = { x: shop.x, z: shop.z, health: 50, armor: 0 };
 eco.menuOpen = false;
