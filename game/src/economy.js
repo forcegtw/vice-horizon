@@ -12,19 +12,19 @@
 //     save merges read the same field, so the two can never disagree on boot.
 //   - Every credited or spent amount passes a finite-number guard, so a bad
 //     value from a future data-driven table cannot corrupt the ledger.
-//   - PRICE_LIST and the buy() switch are two views of one truth: the menu
+//   - MENU_PRICES and the buy() switch are two views of one truth: the menu
 //     text is assembled from the table, so the two can never drift apart.
 
 import * as THREE from '../vendor/three.min.js';
 import { PLAYER, UPGRADE_HINTS } from './config.js';
 
 // Ledger key — save.js wipes the same string in clearSave(); keep both in step.
-const ECO_KEY = 'vice-horizon-economy-v1';
+const LEDGER_KEY = 'vice-horizon-economy-v1';
 
 // Shop menu's price list, in dollars. Key order matches the hotkeys of buy()
 // (B health, N armor, V speed, C plating) so the menu reads left-to-right in
 // the same order the keys sit on the keyboard.
-const PRICE_LIST = Object.freeze({
+const MENU_PRICES = Object.freeze({
   health: 150,     // full heal at a gas station
   armor: 400,      // full armor refill
   speed: 2500,     // permanent engine tune (one-time)
@@ -39,8 +39,9 @@ export const UPGRADES = Object.freeze({
 
 // Station placement: fractions along the road-line list, so three stops land
 // near the map's west end, middle and east end regardless of grid size.
-const STATION_SPREAD = Object.freeze([0.12, 0.5, 0.86]);
-const CURB_OFFSET = 6;     // metres a stop sits off the roadway, on the lot
+const SITE_SPREAD = Object.freeze([0.12, 0.5, 0.86]);
+const LOT_OFFSET = 6;      // metres a stop sits off the roadway, on the lot
+const MENU_TOAST_SECONDS = 30;  // shop menu lingers until replaced or left
 
 export class Economy {
   constructor(scene, city, rng) {
@@ -60,7 +61,7 @@ export class Economy {
     this._stationCount = 3;    // stations planted per city grid
 
     this._load();
-    this._plantStations();
+    this._buildStops();
   }
 
   // Cash truth lives in state.money once bound; before that (boot, ?shot=
@@ -83,7 +84,7 @@ export class Economy {
   // hold corrupt JSON — either way the catch starts us fresh.
   _load() {
     try {
-      const raw = localStorage.getItem(ECO_KEY);
+      const raw = localStorage.getItem(LEDGER_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
       if (typeof data.money === 'number' && Number.isFinite(data.money)) {
@@ -100,7 +101,7 @@ export class Economy {
 
   persist() {
     try {
-      localStorage.setItem(ECO_KEY, JSON.stringify({
+      localStorage.setItem(LEDGER_KEY, JSON.stringify({
         money: this.money,
         upgrades: this.upgrades,
       }));
@@ -112,21 +113,21 @@ export class Economy {
   // Stations: spread corners derived from the road-line list. The "along"
   // coordinate for each stop is stolen from the next pick in the list, which
   // keeps the three props apart without any hand-tuned coordinates.
-  _plantStations() {
+  _buildStops() {
     const lines = this.city.roadLines;
     if (!lines || !lines.length) return;
-    const picks = STATION_SPREAD.slice(0, this._stationCount);
+    const picks = SITE_SPREAD.slice(0, this._stationCount);
     for (let i = 0; i < picks.length; i++) {
       const lane = lines[Math.floor(picks[i] * lines.length)];
       const along = (picks[(i + 1) % picks.length] - 0.5) * 2 * this.city.half * 0.75;
-      const x = lane.axis === 'z' ? lane.line + CURB_OFFSET : along;
-      const z = lane.axis === 'z' ? along : lane.line + CURB_OFFSET;
-      this.shops.push(this._makeProp(x, z));
+      const x = lane.axis === 'z' ? lane.line + LOT_OFFSET : along;
+      const z = lane.axis === 'z' ? along : lane.line + LOT_OFFSET;
+      this.shops.push(this._buildStop(x, z));
     }
   }
 
   // One station: lit canopy slab on four posts, a pump with a glowing band.
-  _makeProp(x, z) {
+  _buildStop(x, z) {
     const g = new THREE.Group();
     const canopy = new THREE.Mesh(
       new THREE.BoxGeometry(10, 0.4, 8),
@@ -169,8 +170,8 @@ export class Economy {
   }
 
   // Per-frame shop proximity. The menu toast opens on entry, refreshes only
-  // after a purchase (so bought lines drop out immediately) and closes with a
-  // short farewell once the player walks off.
+  // after a purchase (so bought lines drop out immediately) and closes with
+  // a short farewell once the player walks off.
   update(dt, player, inCar, playerCar, hud) {
     if (this.msgT > 0) this.msgT -= dt;
     const px = inCar ? playerCar.x : player.x;
@@ -188,21 +189,21 @@ export class Economy {
     if (near && !this.menuOpen) {
       this.menuOpen = true;
       this._menuDirty = false;
-      hud.toast(this._offerText(), 30);
+      hud.toast(this._menuText(), MENU_TOAST_SECONDS);
     } else if (near && this.menuOpen && this._menuDirty) {
       this._menuDirty = false;
-      hud.toast(this._offerText(), 30);
+      hud.toast(this._menuText(), MENU_TOAST_SECONDS);
     } else if (!near && this.menuOpen) {
       this.menuOpen = false;
       hud.toast('Left the station.', 2);
     }
   }
 
-  // Shop menu text, assembled from PRICE_LIST so keys and prices stay in
+  // Shop menu text, assembled from MENU_PRICES so keys and prices stay in
   // lockstep; already-owned upgrades drop out of the list.
-  _offerText() {
+  _menuText() {
     const u = this.upgrades;
-    const p = PRICE_LIST;
+    const p = MENU_PRICES;
     return 'GAS STATION — B buy health $' + p.health +
       ' · N buy armor $' + p.armor +
       (u.speed ? '' : ' · V engine tune $' + p.speed) +
@@ -210,8 +211,8 @@ export class Economy {
   }
 
   // Shop hotkeys, called from the main loop on B / N / V / C taps. Returns
-  // true when the tap was handled (even for "already full" no-ops, so the key
-  // never falls through to other bindings), false when ignored.
+  // true when the tap was handled (even for "already full" no-ops, so the
+  // key never falls through to other bindings), false when ignored.
   buy(item, player, hud, sfx) {
     if (!this.insideShop) return false;
     const spend = (cost) => {
@@ -231,14 +232,14 @@ export class Economy {
           hud.toast('Health already full.', 2);
           return true;
         }
-        ok = spend(PRICE_LIST.health);
+        ok = spend(MENU_PRICES.health);
         if (ok) {
           player.health = PLAYER.maxHealth;
           hud.toast('Patched up.', 2);
         }
         break;
       case 'armor':
-        ok = spend(PRICE_LIST.armor);
+        ok = spend(MENU_PRICES.armor);
         if (ok) {
           player.armor = this.armorCap();
           hud.toast('Armor fitted.', 2);
@@ -249,7 +250,7 @@ export class Economy {
           hud.toast('Engine already tuned.', 2);
           return true;
         }
-        ok = spend(PRICE_LIST.speed);
+        ok = spend(MENU_PRICES.speed);
         if (ok) {
           this.upgrades.speed = true;
           hud.toast(UPGRADE_HINTS.speed, 3);
@@ -260,7 +261,7 @@ export class Economy {
           hud.toast('Already plated.', 2);
           return true;
         }
-        ok = spend(PRICE_LIST.plating);
+        ok = spend(MENU_PRICES.plating);
         if (ok) {
           this.upgrades.plating = true;
           hud.toast(UPGRADE_HINTS.plating, 3);

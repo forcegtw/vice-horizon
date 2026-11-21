@@ -2,10 +2,10 @@
 //
 // Crimes bank heat instead of writing stars directly. The visible star count
 // is derived from the banked total against a gate ladder, which is why there
-// is always a "partly earned next star" the heat bar can render. This module
-// owns the ledger and the pursuit timers; the shared state bag carries the
-// derived star count (state.wanted) plus the escalation grace window
-// (state.wantedCooldown) that police spawning reads.
+// is always a "partly earned next star" for the heat bar to render. This
+// module owns the ledger and the pursuit timers; the shared state bag
+// carries the derived star count (state.wanted) plus the escalation grace
+// window (state.wantedCooldown) that police spawning reads.
 //
 // Contracts the rest of the game relies on:
 //   - crime(kind, amount) is the universal entry point. Kinds missing from
@@ -16,18 +16,18 @@
 //   - setHeat(v) is the raw writer (respawn forgiveness, scripted drops).
 //     It never re-announces a star the player still holds.
 //   - clear(reason) wipes everything: bribe dots, garages, escapes.
-//   - update(dt, player, police, inCar) runs once per frame. Live cops inside
-//     sight range keep the pursuit timer topped up; heat only bleeds after
-//     the timer empties, which is what makes a getaway feel earned.
+//   - update(dt, player, police, inCar) runs once per frame. Live cops
+//     inside sight range keep the pursuit timer topped up; heat only bleeds
+//     after the timer empties, which is what makes a getaway feel earned.
 //
-// One full star equals HEAT_PER_STAR heat — that is also the unit
-// missionHeat() speaks in.
+// One full star equals STAR_HEAT heat — that is also the unit missionHeat()
+// speaks in.
 
 import { POLICE } from './config.js';
 
-// Heat banked per crime. Offences against the law always outcost the civilian
-// ones, so stealing a cruiser escalates faster than stealing a sedan.
-const HEAT_TABLE = Object.freeze({
+// Heat banked per offence. Crimes against the law always outcost the
+// civilian ones, so stealing a cruiser escalates faster than a sedan.
+const COST_PER_CRIME = Object.freeze({
   carjack: 60,
   policeCarjack: 110,
   pedHit: 45,
@@ -35,19 +35,20 @@ const HEAT_TABLE = Object.freeze({
   gunshot: 25,
   copDestroyed: 90,
 });
-const UNLISTED_CRIME_HEAT = 40;
+const UNKNOWN_CRIME_COST = 40;
 
 // Heat required to light each star, in order. Between gates the heat bar
 // shows progress toward the next one.
-const STAR_GATES = Object.freeze([40, 110, 220, 360, 520]);
-const HEAT_PER_STAR = 100;
+const STAR_THRESHOLDS = Object.freeze([40, 110, 220, 360, 520]);
+const STAR_HEAT = 100;
 
-// Pursuit bookkeeping. After this many seconds with no cop in sight, the
-// ledger starts cooling; driving extends the grace a little because a
+// Pursuit bookkeeping. After this many seconds with no cop in sight the
+// ledger starts cooling; driving extends the grace a little, because a
 // moving getaway should buy real distance.
-const SIGHT_GRACE = 14;
-const GRACE_BONUS_IN_CAR = 4;
-const COOL_RATE = 6;   // heat units shed per unobserved second
+const PURSUIT_GRACE = 14;
+const MOBILE_GRACE = 4;
+const COOL_PER_SECOND = 6;   // heat units shed per unobserved second
+const STAR_CHAR = '★';       // HUD toasts only; the DOM row uses its own glyphs
 
 export class Wanted {
   constructor(state, sfx, hud) {
@@ -55,7 +56,7 @@ export class Wanted {
     this.sfx = sfx;
     this.hud = hud;
     this.heat = 0;           // the ledger itself
-    this.sightT = SIGHT_GRACE;
+    this.sightT = PURSUIT_GRACE;
     this.crimeCount = 0;     // offences since the last wipe
     this.escaped = false;    // set once natural decay reached zero
   }
@@ -66,22 +67,22 @@ export class Wanted {
     const mult = typeof amount === 'number' && Number.isFinite(amount)
       ? Math.max(0, amount)
       : 1;
-    const cost = HEAT_TABLE[kind] ?? UNLISTED_CRIME_HEAT;
+    const cost = COST_PER_CRIME[kind] ?? UNKNOWN_CRIME_COST;
     this.heat += Math.max(0, cost) * mult;
     this.crimeCount += mult;
-    this.sightT = SIGHT_GRACE;
+    this.sightT = PURSUIT_GRACE;
     this.escaped = false;
     this._pushStars(false);
   }
 
   // Scripted floor: lift the ledger to `stars` worth of heat if it sits lower.
   missionHeat(stars) {
-    const floor = Math.min(POLICE.maxWanted, Math.max(0, stars)) * HEAT_PER_STAR;
+    const floor = Math.min(POLICE.maxWanted, Math.max(0, stars)) * STAR_HEAT;
     if (floor > this.heat) {
       this.heat = floor;
       this._pushStars(false);
     }
-    this.sightT = SIGHT_GRACE;
+    this.sightT = PURSUIT_GRACE;
   }
 
   // Bribe dot / garage / mission handoff: wipe the ledger and the timers.
@@ -89,7 +90,7 @@ export class Wanted {
     this.heat = 0;
     this.state.wanted = 0;
     this.state.wantedCooldown = 0;
-    this.sightT = SIGHT_GRACE;
+    this.sightT = PURSUIT_GRACE;
     this.escaped = reason === 'escape';
     if (this.hud) {
       this.hud.toast(reason === 'escape' ? 'You lost the heat.' : 'Heat cleared.');
@@ -105,7 +106,7 @@ export class Wanted {
   // Count the gates the ledger has passed, capped at the star ceiling.
   stars() {
     let lit = 0;
-    while (lit < STAR_GATES.length && this.heat >= STAR_GATES[lit]) lit++;
+    while (lit < STAR_THRESHOLDS.length && this.heat >= STAR_THRESHOLDS[lit]) lit++;
     return Math.min(lit, POLICE.maxWanted);
   }
 
@@ -118,11 +119,11 @@ export class Wanted {
     this.state.wanted = now;
     if (now > had) {
       this.sfx.wantedUp();
-      if (this.hud) this.hud.toast(`WANTED — ${'★'.repeat(now)}`);
+      if (this.hud) this.hud.toast(`WANTED — ${STAR_CHAR.repeat(now)}`);
       this.state.wantedCooldown = POLICE.despawnCooldown;
     } else if (now < had && announceCooling) {
       if (this.hud) {
-        this.hud.toast(now > 0 ? `Heat cooling — ${'★'.repeat(now)}` : 'Clean.');
+        this.hud.toast(now > 0 ? `Heat cooling — ${STAR_CHAR.repeat(now)}` : 'Clean.');
       }
     }
   }
@@ -140,7 +141,7 @@ export class Wanted {
       }
     }
     if (spotted) {
-      this.sightT = SIGHT_GRACE + (inCar ? GRACE_BONUS_IN_CAR : 0);
+      this.sightT = PURSUIT_GRACE + (inCar ? MOBILE_GRACE : 0);
       this.escaped = false;
     } else {
       this.sightT -= dt;
@@ -148,7 +149,7 @@ export class Wanted {
 
     if (this.heat > 0 && this.sightT <= 0) {
       const held = this.state.wanted;
-      this.heat = Math.max(0, this.heat - COOL_RATE * dt);
+      this.heat = Math.max(0, this.heat - COOL_PER_SECOND * dt);
       const droppedAStar = this.stars() < held;
       this._pushStars(droppedAStar);   // announce only a real star drop
       if (this.heat === 0 && !this.escaped) this.clear('escape');
@@ -166,8 +167,8 @@ export class Wanted {
   heatRatio() {
     const lit = this.stars();
     if (lit >= POLICE.maxWanted) return 1;
-    const floor = lit === 0 ? 0 : STAR_GATES[lit - 1];
-    const ceiling = STAR_GATES[lit];
+    const floor = lit === 0 ? 0 : STAR_THRESHOLDS[lit - 1];
+    const ceiling = STAR_THRESHOLDS[lit];
     const span = ceiling - floor;
     return span > 0 ? Math.max(0, Math.min(1, (this.heat - floor) / span)) : 1;
   }

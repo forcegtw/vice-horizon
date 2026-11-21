@@ -13,13 +13,13 @@
 //     musicGain.
 //   - start() honours the mute toggle: unpausing a muted radio must not
 //     resurrect a silent scheduler.
-//   - stop() resets the lookahead clock, and MAX_CATCHUP_STEPS caps how far a
-//     throttled tab may catch up per scheduler tick — neither a long pause
+//   - stop() resets the lookahead clock, and MAX_CATCHUP_STEPS caps how far
+//     a throttled tab may catch up per scheduler tick — neither a long pause
 //     nor a backgrounded tab may ever dump a burst of overdue notes.
 
 // The dial. `off` is a real slot so cycling can land on silence; its bpm of 0
 // marks it as non-playing everywhere.
-const DIAL = Object.freeze([
+const STATIONS = Object.freeze([
   {
     id: 'wave', name: 'WAVE 103', bpm: 104,
     wave: 'sawtooth', lead: 'square',
@@ -45,15 +45,16 @@ const DIAL = Object.freeze([
 ]);
 
 const STEPS_PER_BAR = 8;          // eighth notes per bar
-const AHEAD_MS = 90;              // scheduler lookahead
-const POLL_MS = 40;               // scheduler tick interval
-const CATCHUP_CAP = 16;           // max steps scheduled per tick
+const LOOKAHEAD_MS = 90;          // scheduler lookahead
+const TICK_MS = 40;               // scheduler tick interval
+const MAX_CATCHUP_STEPS = 16;     // max steps scheduled per tick
 const BUS_VOLUME = 0.12;
-const ARP_SKIP = 3;               // lead rests every ARP_SKIP-th step
-const START_DELAY = 0.05;         // breathing room between start() and note 1
+const ARP_REST_EVERY = 3;         // lead rests on every ARP_REST_EVERY-th step
+const WARMUP = 0.05;              // breathing room between start() and note 1
+const HAT_HZ = 6000;              // closed-hat highpass corner
 
 // One step = one eighth note.
-function stepLength(bpm) {
+function secondsPerStep(bpm) {
   return 60 / bpm / 2;
 }
 
@@ -77,7 +78,7 @@ export class Radio {
     this.gain.connect(this.sfx.master);
   }
 
-  station() { return DIAL[this.stationIndex]; }
+  station() { return STATIONS[this.stationIndex]; }
 
   // Enter / leave a car. Idempotent: re-calling with the same state is free.
   setInCar(inCar) {
@@ -96,9 +97,9 @@ export class Radio {
     if (this.station().id === 'off') return;   // silence is not a scheduler
     if (!this.enabled) return;                 // muted: never schedule silently
     this._ensureBus();
-    this.nextTime = this.sfx.ctx.currentTime + START_DELAY;
+    this.nextTime = this.sfx.ctx.currentTime + WARMUP;
     this.step = 0;
-    this.timer = setInterval(() => this._schedule(), POLL_MS);
+    this.timer = setInterval(() => this._pump(), TICK_MS);
   }
 
   stop() {
@@ -112,16 +113,16 @@ export class Radio {
   // Dial rotation. Both directions wrap (including RADIO OFF) and the
   // sequencer restarts only when the new station actually plays.
   next() {
-    this.stationIndex = (this.stationIndex + 1) % DIAL.length;
-    return this._retune();
+    this.stationIndex = (this.stationIndex + 1) % STATIONS.length;
+    return this._tuneIn();
   }
 
   prev() {
-    this.stationIndex = (this.stationIndex + DIAL.length - 1) % DIAL.length;
-    return this._retune();
+    this.stationIndex = (this.stationIndex + STATIONS.length - 1) % STATIONS.length;
+    return this._tuneIn();
   }
 
-  _retune() {
+  _tuneIn() {
     this.step = 0;
     this.stop();
     if (this.active && this.enabled && this.station().id !== 'off') this.start();
@@ -138,39 +139,40 @@ export class Radio {
     return this.enabled;
   }
 
-  // Sequencer core: schedule notes up to AHEAD_MS ahead of "now", with a hard
-  // cap on steps per tick so catch-up after a throttled tab stays a trickle.
-  _schedule() {
+  // Sequencer core: schedule notes up to LOOKAHEAD_MS ahead of "now", with a
+  // hard cap on steps per tick so catch-up after a throttled tab stays a
+  // trickle.
+  _pump() {
     if (!this.sfx.ctx || !this.gain) return;
     if (this.sfx.ctx.state !== 'running') return;
     const st = this.station();
     if (st.id === 'off') { this.stop(); return; }
-    const stepDur = stepLength(st.bpm);
+    const stepDur = secondsPerStep(st.bpm);
     let guard = 0;
     while (
-      this.nextTime < this.sfx.ctx.currentTime + AHEAD_MS / 1000 &&
-      guard++ < CATCHUP_CAP
+      this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000 &&
+      guard++ < MAX_CATCHUP_STEPS
     ) {
       const s = this.step % STEPS_PER_BAR;
       const t = this.nextTime;
       // Bass: root-driven pattern through a gated envelope, every step.
       const deg = st.scale[st.pattern[s] % st.scale.length];
-      this._voice(st.root * Math.pow(2, deg / 12), stepDur * 1.7, st.wave, 0.5, t);
+      this._note(st.root * Math.pow(2, deg / 12), stepDur * 1.7, st.wave, 0.5, t);
       // Lead arp an octave up, quieter, resting every third step for lift.
-      if (s % ARP_SKIP !== ARP_SKIP - 1) {
+      if (s % ARP_REST_EVERY !== ARP_REST_EVERY - 1) {
         const li = (this.step * 5) % st.scale.length;
-        this._voice(st.root * 4 * Math.pow(2, st.scale[li] / 12), stepDur * 0.8, st.lead, 0.16, t);
+        this._note(st.root * 4 * Math.pow(2, st.scale[li] / 12), stepDur * 0.8, st.lead, 0.16, t);
       }
       // Hats ride the off-beats; the kick lands on downbeats.
-      if (s % 2 === 1) this._cymbal(t);
-      if (s % 4 === 0) this._thump(t);
+      if (s % 2 === 1) this._hat(t);
+      if (s % 4 === 0) this._kick(t);
       this.step++;
       this.nextTime += stepDur;
     }
   }
 
   // One enveloped oscillator note into the radio bus.
-  _voice(freq, dur, type, vol, when) {
+  _note(freq, dur, type, vol, when) {
     if (!this.sfx.ctx || !this.gain) return;
     const o = this.sfx.ctx.createOscillator();
     const g = this.sfx.ctx.createGain();
@@ -186,7 +188,7 @@ export class Radio {
   }
 
   // Closed hi-hat: a fading white-noise burst through a highpass.
-  _cymbal(when) {
+  _hat(when) {
     if (!this.sfx.ctx || !this.gain) return;
     const len = Math.floor(this.sfx.ctx.sampleRate * 0.04);
     const buf = this.sfx.ctx.createBuffer(1, len, this.sfx.ctx.sampleRate);
@@ -196,7 +198,7 @@ export class Radio {
     src.buffer = buf;
     const f = this.sfx.ctx.createBiquadFilter();
     f.type = 'highpass';
-    f.frequency.value = 6000;
+    f.frequency.value = HAT_HZ;
     const g = this.sfx.ctx.createGain();
     g.gain.value = 0.35;
     src.connect(f);
@@ -206,7 +208,7 @@ export class Radio {
   }
 
   // Kick: the classic pitch-dropping sine thump, 140 Hz down to 45 Hz.
-  _thump(when) {
+  _kick(when) {
     if (!this.sfx.ctx || !this.gain) return;
     const o = this.sfx.ctx.createOscillator();
     const g = this.sfx.ctx.createGain();
@@ -227,7 +229,7 @@ export class Radio {
     if (st.id === 'off' || !this.sfx.ctx) return;
     const t0 = this.sfx.ctx.currentTime;
     st.scale.slice(0, 4).forEach((deg, i) => {
-      this._voice(st.root * 8 * Math.pow(2, deg / 12), 0.1, 'square', 0.2, t0 + i * 0.07);
+      this._note(st.root * 8 * Math.pow(2, deg / 12), 0.1, 'square', 0.2, t0 + i * 0.07);
     });
   }
 
