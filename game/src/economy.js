@@ -1,39 +1,46 @@
-// economy.js — cash, gas-station shop stops and vehicle upgrades for Vice
-// Horizon. Gas stations are canopy + pump props planted on spread street
-// corners; stopping inside one opens the shop menu (drive-through in a car,
-// walk-up on foot). Purchases and cash persist in their own localStorage key
-// alongside the main save.
+// economy.js — cash, gas-station pit stops and vehicle upgrades.
+//
+// Gas stations are canopy + pump props planted on spread street corners,
+// derived from the road-line list so the layout follows whatever grid the
+// city builds (no hardcoded coordinates). Stopping inside a station opens
+// the shop menu — drive-through in a car, walk-up on foot — and purchases
+// persist in their own localStorage ledger beside the main save.
 //
 // Design rules this module keeps:
-//   - The economy owns money flow and its own storage key. Mission rewards may
-//     still credit state.money directly (Economy.bind() mirrors it here), and
+//   - The economy owns money flow and its own storage key. Mission rewards
+//     may still credit state.money directly (bind() mirrors it here), and
 //     save merges read the same field, so the two can never disagree on boot.
 //   - Every credited or spent amount passes a finite-number guard, so a bad
 //     value from a future data-driven table cannot corrupt the ledger.
-//   - PRICES and UPGRADES are the single source of truth for both the shop
-//     menu text and the buy() switch; change one, not the other.
+//   - PRICE_LIST and the buy() switch are two views of one truth: the menu
+//     text is assembled from the table, so the two can never drift apart.
 
 import * as THREE from '../vendor/three.min.js';
 import { PLAYER, UPGRADE_HINTS } from './config.js';
 
+// Ledger key — save.js wipes the same string in clearSave(); keep both in step.
 const ECO_KEY = 'vice-horizon-economy-v1';
 
-// The shop menu's price list, in dollars. Key order matches the hotkeys of
-// buy() (B health, N armor, V speed, C plating) so the menu reads in the same
-// order the keys sit on the keyboard.
-// Shop menu's price list — also the single source of truth for _menuText().
-const PRICES = Object.freeze({
+// Shop menu's price list, in dollars. Key order matches the hotkeys of buy()
+// (B health, N armor, V speed, C plating) so the menu reads left-to-right in
+// the same order the keys sit on the keyboard.
+const PRICE_LIST = Object.freeze({
   health: 150,     // full heal at a gas station
   armor: 400,      // full armor refill
   speed: 2500,     // permanent engine tune (one-time)
   plating: 1800,   // permanent armor upgrade (one-time)
 });
 
-// What each permanent upgrade grants when bought.
+// What each permanent upgrade grants once bought.
 export const UPGRADES = Object.freeze({
   speedBonus: 0.18,   // +18% top speed with the engine tune
   armorBonus: 50,     // extra armor capacity with plating
 });
+
+// Station placement: fractions along the road-line list, so three stops land
+// near the map's west end, middle and east end regardless of grid size.
+const STATION_SPREAD = Object.freeze([0.12, 0.5, 0.86]);
+const CURB_OFFSET = 6;     // metres a stop sits off the roadway, on the lot
 
 export class Economy {
   constructor(scene, city, rng) {
@@ -46,32 +53,34 @@ export class Economy {
     this.shops = [];           // [{ x, z, mesh }]
     this.insideShop = null;
     this.menuOpen = false;
-    this._menuDirty = false;   // set after a purchase so the offer refreshes in place
+    this._menuDirty = false;   // set after a purchase so the offer refreshes
     this.msg = '';
     this.msgT = 0;
-    this.shopRadius = 8;       // metres from a canopy that counts as "at the station"
+    this.shopRadius = 8;       // metres from a canopy that counts as "there"
     this._stationCount = 3;    // stations planted per city grid
 
     this._load();
-    this._buildStations();
+    this._plantStations();
   }
 
-  // Cash source of truth is state.money once bound; before that (boot,
-  // ?shot= staging) the local mirror answers so nothing reads undefined.
+  // Cash truth lives in state.money once bound; before that (boot, ?shot=
+  // staging) the local mirror answers so nothing ever reads undefined.
   get money() { return this._state ? this._state.money : this._cash; }
   set money(v) {
     if (this._state) this._state.money = v;
     else this._cash = v;
   }
 
-  // Bind to the shared game state. A save already in state wins over the
-  // economy mirror, so mission progress and cash never disagree on boot.
+  // Bind to the shared game state. A save already sitting in state wins over
+  // the economy mirror, so mission progress and cash never disagree on boot.
   bind(state) {
     this._state = state;
     if (!state.money && this._cash > 0) state.money = this._cash;
     this._cash = state.money;
   }
 
+  // Ledger restore. Storage may be missing entirely (node smoke runs) or
+  // hold corrupt JSON — either way the catch starts us fresh.
   _load() {
     try {
       const raw = localStorage.getItem(ECO_KEY);
@@ -100,23 +109,24 @@ export class Economy {
     }
   }
 
-  // Gas stations: three spread corners, derived from the road-line list so the
-  // layout follows whatever grid the city builds (no hardcoded coordinates).
-  _buildStations() {
+  // Stations: spread corners derived from the road-line list. The "along"
+  // coordinate for each stop is stolen from the next pick in the list, which
+  // keeps the three props apart without any hand-tuned coordinates.
+  _plantStations() {
     const lines = this.city.roadLines;
     if (!lines || !lines.length) return;
-    const picks = [0.12, 0.5, 0.86].slice(0, this._stationCount);
+    const picks = STATION_SPREAD.slice(0, this._stationCount);
     for (let i = 0; i < picks.length; i++) {
       const lane = lines[Math.floor(picks[i] * lines.length)];
       const along = (picks[(i + 1) % picks.length] - 0.5) * 2 * this.city.half * 0.75;
-      const x = lane.axis === 'z' ? lane.line + 6 : along;
-      const z = lane.axis === 'z' ? along : lane.line + 6;
-      this.shops.push(this._makeStation(x, z));
+      const x = lane.axis === 'z' ? lane.line + CURB_OFFSET : along;
+      const z = lane.axis === 'z' ? along : lane.line + CURB_OFFSET;
+      this.shops.push(this._makeProp(x, z));
     }
   }
 
   // One station: lit canopy slab on four posts, a pump with a glowing band.
-  _makeStation(x, z) {
+  _makeProp(x, z) {
     const g = new THREE.Group();
     const canopy = new THREE.Mesh(
       new THREE.BoxGeometry(10, 0.4, 8),
@@ -160,7 +170,7 @@ export class Economy {
 
   // Per-frame shop proximity. The menu toast opens on entry, refreshes only
   // after a purchase (so bought lines drop out immediately) and closes with a
-  // short farewell when the player walks off.
+  // short farewell once the player walks off.
   update(dt, player, inCar, playerCar, hud) {
     if (this.msgT > 0) this.msgT -= dt;
     const px = inCar ? playerCar.x : player.x;
@@ -178,30 +188,30 @@ export class Economy {
     if (near && !this.menuOpen) {
       this.menuOpen = true;
       this._menuDirty = false;
-      hud.toast(this._menuText(), 30);
+      hud.toast(this._offerText(), 30);
     } else if (near && this.menuOpen && this._menuDirty) {
       this._menuDirty = false;
-      hud.toast(this._menuText(), 30);
+      hud.toast(this._offerText(), 30);
     } else if (!near && this.menuOpen) {
       this.menuOpen = false;
       hud.toast('Left the station.', 2);
     }
   }
 
-  // Shop menu text. Keys and prices are assembled from PRICES so the two stay
-  // in lockstep; already-owned upgrades drop out of the list.
-  _menuText() {
+  // Shop menu text, assembled from PRICE_LIST so keys and prices stay in
+  // lockstep; already-owned upgrades drop out of the list.
+  _offerText() {
     const u = this.upgrades;
-    const p = PRICES;
+    const p = PRICE_LIST;
     return 'GAS STATION — B buy health $' + p.health +
       ' · N buy armor $' + p.armor +
       (u.speed ? '' : ' · V engine tune $' + p.speed) +
       (u.plating ? '' : ' · C plating $' + p.plating);
   }
 
-  // Shop hotkeys, called from the main loop when the player taps B/N/V/C.
-  // Returns true when the tap was handled (even for "already full" no-ops, so
-  // the key doesn't fall through to other bindings), false when ignored.
+  // Shop hotkeys, called from the main loop on B / N / V / C taps. Returns
+  // true when the tap was handled (even for "already full" no-ops, so the key
+  // never falls through to other bindings), false when ignored.
   buy(item, player, hud, sfx) {
     if (!this.insideShop) return false;
     const spend = (cost) => {
@@ -221,14 +231,14 @@ export class Economy {
           hud.toast('Health already full.', 2);
           return true;
         }
-        ok = spend(PRICES.health);
+        ok = spend(PRICE_LIST.health);
         if (ok) {
           player.health = PLAYER.maxHealth;
           hud.toast('Patched up.', 2);
         }
         break;
       case 'armor':
-        ok = spend(PRICES.armor);
+        ok = spend(PRICE_LIST.armor);
         if (ok) {
           player.armor = this.armorCap();
           hud.toast('Armor fitted.', 2);
@@ -239,7 +249,7 @@ export class Economy {
           hud.toast('Engine already tuned.', 2);
           return true;
         }
-        ok = spend(PRICES.speed);
+        ok = spend(PRICE_LIST.speed);
         if (ok) {
           this.upgrades.speed = true;
           hud.toast(UPGRADE_HINTS.speed, 3);
@@ -250,7 +260,7 @@ export class Economy {
           hud.toast('Already plated.', 2);
           return true;
         }
-        ok = spend(PRICES.plating);
+        ok = spend(PRICE_LIST.plating);
         if (ok) {
           this.upgrades.plating = true;
           hud.toast(UPGRADE_HINTS.plating, 3);
@@ -269,12 +279,12 @@ export class Economy {
   }
 
   // Top-speed multiplier applied to the player's car in main.js drive calls.
+  // Only the forward cap scales; reverse and braking stay stock.
   speedMultiplier() {
-    // Only the forward cap scales; reverse and braking stay stock.
     return this.upgrades.speed ? 1 + UPGRADES.speedBonus : 1;
   }
 
-  // Extra armor capacity above the base max (plating raises the ceiling).
+  // Armor ceiling above the base max (plating raises it).
   armorCap() { return PLAYER.maxArmor + (this.upgrades.plating ? UPGRADES.armorBonus : 0); }
 
   // Mission rewards / pickups credit here so persistence stays in one place.

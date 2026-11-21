@@ -1,25 +1,26 @@
-// peds2.js — the "life" layer over the base Peds population (peds.js).
+// peds2.js — the "life" layer painted over the base crowd (peds.js).
 //
-// This module does not own meshes or the ped cap. It decorates the existing
-// ped records with behavioural state (anim tier, fear, idle browsing), runs a
-// threat-sensing pass driven by the wanted level, and drives a richer rig
+// This module owns no meshes and no ped cap. It decorates the existing ped
+// records with behavioural state (anim tier, fear, idle browsing), runs a
+// threat-sensing pass driven by the wanted level, and poses a richer rig
 // animation than the base strut. main.js calls it after peds.update():
 //     peds.update(...); peds2.senseThreat(...); peds2.update(...);
 //
 // Rules the two layers agree on:
 //   - peds.js owns p.state ('walk'/'flee'/'dead'). This layer may set
-//     p.state = 'flee' when fear maxes out but never touches 'dead'.
-//   - PANIC_SPRINT must exceed the base FLEE_SPEED (5.2), or peds handed over
-//     to the base flee branch would visibly slow down mid-panic.
-//   - districtDensity() shapes where crowds feel thick: the beach strip and
-//     downtown stay busy, the docks stay sparse. Values near/above 1.0 mean
-//     "worth topping up", below 1.0 means "leave it thin".
+//     p.state = 'flee' when fear boils over but never touches 'dead'.
+//   - PANIC_SPRINT must exceed the base SPRINT_SPEED (5.2), or peds handed
+//     over to the base flee branch would visibly slow down mid-panic.
+//   - crowdDensity() shapes where crowds feel thick: the boardwalk strip and
+//     downtown core stay busy (≥ 1.0, worth topping up), the docks stay
+//     sparse. topUp() only ever moves peds into the busy zones.
 
 import { WORLD } from './config.js';
 import { HALF } from './city.js';
 
-// Fraction of the map coordinate range, west → east.
-function districtDensity(x, z) {
+// Crowd pressure for one map spot, as a fraction of the map span west → east.
+// Values at or above 1.0 mean "worth topping up", below 1.0 "leave it thin".
+function crowdDensity(x, z) {
   const t = (x + HALF) / (HALF * 2);
   if (t < 0.25) return 1.15;                                  // boardwalk
   if (Math.abs(x) < HALF * 0.35 && Math.abs(z) < HALF * 0.35) return 1.25; // downtown core
@@ -27,16 +28,17 @@ function districtDensity(x, z) {
   return 1.0;
 }
 
-const IDLE_CHANCE = 0.18;     // share of peds that start as window-shoppers
-const IDLE_SPEED = 0.35;      // browsing shuffle speed
-const PANIC_SPRINT = 6.4;     // must stay above peds.js FLEE_SPEED (5.2)
-const FEAR_SPRINT_THRESHOLD = 0.75;
-const FEAR_HURRY_THRESHOLD = 0.3;
+const IDLE_SHARE = 0.18;      // share of peds that start as window-shoppers
+const BROWSE_SPEED = 0.35;    // browsing shuffle speed
+const PANIC_SPRINT = 6.4;     // must stay above peds.js SPRINT_SPEED (5.2)
+const SPRINT_FEAR = 0.75;     // fear at which the run starts
+const HURRY_FEAR = 0.3;       // fear below which a hurry eases back to stroll
+const WAVE_SPEED = 2.2;       // idle arm-wave oscillation, cycles per second
 
-// Cadence per animation tier, in stride cycles per second.
-const CADENCE = Object.freeze({ stroll: 3.2, hurry: 4.6, sprint: 6.0, idle: 1.0 });
-// Arm/leg swing amplitude per tier.
-const AMPLITUDE = Object.freeze({ stroll: 0.62, hurry: 0.78, sprint: 0.62, idle: 0.08 });
+// Stride tempo per animation tier, in cycles per second…
+const TEMPO = Object.freeze({ stroll: 3.2, hurry: 4.6, sprint: 6.0, idle: 1.0 });
+// …and swing amplitude per tier.
+const SWING = Object.freeze({ stroll: 0.62, hurry: 0.78, sprint: 0.62, idle: 0.08 });
 
 export class Peds2 {
   constructor(peds, city, rng) {
@@ -49,7 +51,8 @@ export class Peds2 {
     for (const p of this.peds.peds) this.augment(p, rng, true);
 
     // ...and wrap the base spawn() so recycled peds come back with fresh
-    // layer state (otherwise a former sprinter would stroll in with stale fear).
+    // layer state — otherwise a former sprinter would stroll in carrying
+    // stale fear from its previous life.
     const baseSpawn = this.peds.spawn.bind(this.peds);
     this.peds.spawn = (rngArg, rec) => {
       baseSpawn(rngArg, rec);
@@ -58,25 +61,27 @@ export class Peds2 {
     };
   }
 
-  // Add/refresh the layer fields on one ped record.
+  // Add or refresh the layer fields on one ped record.
   augment(p, rng, initial) {
     p.anim = 'stroll';               // stroll | hurry | sprint | idle
     p.idleT = 0;                     // seconds of browsing left
     p.fearLevel = 0;                 // 0 calm → 1 panicking, eased per frame
     p.lean = (rng() - 0.5) * 0.25;   // per-ped sway bias so idlers differ
     p.wavePhase = rng() * Math.PI * 2;
-    p.density = districtDensity(p.x, p.z);
-    if (initial && rng() < IDLE_CHANCE) {
+    p.density = crowdDensity(p.x, p.z);
+    if (initial && rng() < IDLE_SHARE) {
       p.anim = 'idle';
       p.idleT = 4 + rng() * 10;
     }
   }
 
-  // Threat pass: fear rises with wanted stars and closeness, and maxing out
-  // hands the ped to the base flee logic. Runs every frame; math is cheap.
+  // Threat pass: fear climbs with wanted stars and closeness; maxing out
+  // hands the ped to the base flee logic, which owns the run from there.
+  // Runs every frame; the math is cheap enough that early-outs are the only
+  // optimisation it needs (no heat → no sensing cost).
   senseThreat(playerPos, wanted, dt) {
     const stars = wanted || 0;
-    if (stars <= 0) return;   // no heat → no sensing cost
+    if (stars <= 0) return;
     const radius = 14 + stars * 9;
     for (const p of this.peds.peds) {
       if (p.state === 'dead') continue;
@@ -92,76 +97,83 @@ export class Peds2 {
       p.fearLevel += (target - p.fearLevel) * Math.min(1, dt * rate);
 
       if (p.state === 'flee') continue;   // base layer already owns the sprint
-      if (p.fearLevel > FEAR_SPRINT_THRESHOLD) {
+      if (p.fearLevel > SPRINT_FEAR) {
         p.anim = 'sprint';
         p.heading = Math.atan2(-dx, -dz); // run away from the player
         p.speed = PANIC_SPRINT * (0.85 + this.rng() * 0.3);
-        p.state = 'flee';                 // hand over; base settles at CALM_RADIUS
+        p.state = 'flee';                 // hand over; base settles at SAFE_ZONE
       } else if (p.anim === 'sprint') {
         p.anim = 'hurry';
       }
     }
   }
 
-  // Idle browsing: stand, sway, occasionally shuffle. Returns true when the
-  // ped is idling (the caller skips its own stroll/hurry logic then).
+  // Idle browsing: stand, sway, occasionally shuffle or move on. Returns
+  // true when the ped is idling (the caller skips its own tempo logic then).
   tickIdle(p, dt) {
     if (p.anim !== 'idle') return false;
     p.idleT -= dt;
-    p.speed = IDLE_SPEED;
+    p.speed = BROWSE_SPEED;
     p.heading += p.lean * dt * 0.4;
     if (p.idleT <= 0) {
       if (this.rng() < 0.5) {
         p.anim = 'stroll';
         p.heading += (this.rng() - 0.5) * 2.4;
       } else {
-        p.idleT = 3 + this.rng() * 8;
+        p.idleT = 3 + this.rng() * 8;   // keep browsing a while longer
       }
     }
     return true;
   }
 
-  // Animation pass: cadence + amplitude per tier, idle arm wave, lean.
+  // Per-frame pass: tier transitions, stride tempo, limb swings, lean.
   update(dt, playerPos, wanted) {
     for (const p of this.peds.peds) {
       if (p.state === 'dead') continue;   // the fall pose belongs to peds.js
-      p.density = districtDensity(p.x, p.z);
+      p.density = crowdDensity(p.x, p.z);
 
-      if (!this.tickIdle(p, dt)) {
-        // Decay hurry back to stroll once the fear is gone.
-        if (p.anim === 'hurry' && p.state !== 'flee' && p.fearLevel < FEAR_HURRY_THRESHOLD) {
-          p.anim = 'stroll';
-        }
-        // A few pedestrians always look busy, even in a calm city.
-        if (p.anim === 'stroll' && p.state !== 'flee' && this.rng() < dt * 0.05) {
-          p.anim = 'hurry';
-        }
-      }
-
-      const cadence = CADENCE[p.anim] || CADENCE.stroll;
-      const speedScale = p.state === 'flee' ? 1.5 : (p.anim === 'idle' ? 0.2 : 1.0);
-      p.phase += dt * cadence * speedScale * (p.speed > 4 ? 1.3 : 1);
-
-      const limbs = p.mesh.userData.limbs;
-      const swing = Math.sin(p.phase) * (AMPLITUDE[p.anim] || AMPLITUDE.stroll);
-      limbs[0].rotation.x = swing;
-      limbs[1].rotation.x = -swing;
-      limbs[2].rotation.x = -swing * 0.8;
-      limbs[3].rotation.x = swing * 0.8;
-
-      if (p.anim === 'idle') {
-        // Wave at nothing in particular; a slight body roll sells the sway.
-        p.wavePhase += dt * 2.2;
-        limbs[2].rotation.x = -0.9 + Math.sin(p.wavePhase) * 0.35;
-        p.mesh.rotation.z = Math.sin(p.wavePhase * 0.5) * 0.04;
-      } else {
-        p.mesh.rotation.z = 0;
-      }
-
-      // Sprinters hunch; calm peds ease upright. Frame-rate independent ease.
-      const targetLean = p.state === 'flee' ? 0.16 : 0.05 + p.fearLevel * 0.1;
-      p.mesh.rotation.x += (targetLean - p.mesh.rotation.x) * Math.min(1, dt * 6);
+      if (!this.tickIdle(p, dt)) this._tempo(p, dt);
+      this._pose(p, dt);
     }
+  }
+
+  // Tier transitions for walking peds: hurry decays back to stroll once the
+  // fear drains, and a few walkers always look busy even in a calm city.
+  _tempo(p, dt) {
+    if (p.anim === 'hurry' && p.state !== 'flee' && p.fearLevel < HURRY_FEAR) {
+      p.anim = 'stroll';
+    }
+    if (p.anim === 'stroll' && p.state !== 'flee' && this.rng() < dt * 0.05) {
+      p.anim = 'hurry';
+    }
+  }
+
+  // Rig posing: cadence + amplitude per tier, the idle arm wave and body
+  // roll, and a frame-rate-independent lean ease (sprinters hunch, calm
+  // peds stand tall).
+  _pose(p, dt) {
+    const tempo = TEMPO[p.anim] || TEMPO.stroll;
+    const gait = p.state === 'flee' ? 1.5 : (p.anim === 'idle' ? 0.2 : 1.0);
+    p.phase += dt * tempo * gait * (p.speed > 4 ? 1.3 : 1);
+
+    const limbs = p.mesh.userData.limbs;
+    const swing = Math.sin(p.phase) * (SWING[p.anim] || SWING.stroll);
+    limbs[0].rotation.x = swing;
+    limbs[1].rotation.x = -swing;
+    limbs[2].rotation.x = -swing * 0.8;
+    limbs[3].rotation.x = swing * 0.8;
+
+    if (p.anim === 'idle') {
+      // Wave at nothing in particular; a slight body roll sells the sway.
+      p.wavePhase += dt * WAVE_SPEED;
+      limbs[2].rotation.x = -0.9 + Math.sin(p.wavePhase) * 0.35;
+      p.mesh.rotation.z = Math.sin(p.wavePhase * 0.5) * 0.04;
+    } else {
+      p.mesh.rotation.z = 0;
+    }
+
+    const targetLean = p.state === 'flee' ? 0.16 : 0.05 + p.fearLevel * 0.1;
+    p.mesh.rotation.x += (targetLean - p.mesh.rotation.x) * Math.min(1, dt * 6);
   }
 
   // Optional top-up pass: repositions the peds farthest from the player into
@@ -175,7 +187,7 @@ export class Peds2 {
       const side = (this.rng() < 0.5 ? 1 : -1) * (WORLD.roadWidth / 2 + WORLD.sidewalk * 0.6);
       const x = lane.axis === 'z' ? lane.line + side : along;
       const z = lane.axis === 'z' ? along : lane.line + side;
-      if (districtDensity(x, z) < 1.0) continue;   // docks stay thin
+      if (crowdDensity(x, z) < 1.0) continue;   // the docks stay thin
 
       // Donor: the living, calm ped farthest from the player focus.
       let donor = null;

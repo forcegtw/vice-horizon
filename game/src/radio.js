@@ -1,21 +1,25 @@
-// radio.js — procedural in-car radio for Vice Horizon.
+// radio.js — the procedural in-car dial.
 //
-// Every station is a tiny WebAudio sequencer (bass line, lead arp, drums) with
-// its own scale, tempo and waveforms — no audio files. The radio only plays
-// while the player is in a car; J / Shift-J cycle stations, K toggles mute,
-// and hud.js reads Radio.label() for the station name.
+// Each station is a miniature WebAudio sequencer — bass line, lead arp, hats
+// and kick — with its own scale, tempo and waveform pairing. No audio files:
+// every note is synthesized at schedule time. The dial only spins while the
+// player is behind the wheel; J / Shift-J step through stations, K mutes, and
+// hud.js renders Radio.label() next to the clock.
 //
-// Design rules:
-//   - Radio owns its oscillators and never writes to the DOM.
-//   - The radio bus is its own gain node (0.12) connected to sfx.master, so
-//     station music ducks under sirens and never touches Sfx.musicGain.
+// House rules this module keeps:
+//   - Radio owns its oscillators and never touches the DOM.
+//   - All station audio flows through one bus gain (BUS_VOLUME) connected to
+//     sfx.master, so music ducks under sirens and never touches Sfx's own
+//     musicGain.
 //   - start() honours the mute toggle: unpausing a muted radio must not
 //     resurrect a silent scheduler.
-//   - stop() resets the lookahead clock so a long pause cannot make the next
-//     resume dump a burst of overdue oscillators; MAX_CATCHUP_STEPS additionally
-//     caps how far behind a throttled tab may catch up per scheduler tick.
+//   - stop() resets the lookahead clock, and MAX_CATCHUP_STEPS caps how far a
+//     throttled tab may catch up per scheduler tick — neither a long pause
+//     nor a backgrounded tab may ever dump a burst of overdue notes.
 
-const STATIONS = Object.freeze([
+// The dial. `off` is a real slot so cycling can land on silence; its bpm of 0
+// marks it as non-playing everywhere.
+const DIAL = Object.freeze([
   {
     id: 'wave', name: 'WAVE 103', bpm: 104,
     wave: 'sawtooth', lead: 'square',
@@ -40,16 +44,16 @@ const STATIONS = Object.freeze([
   },
 ]);
 
-const STEPS_PER_BAR = 8;
-const LOOKAHEAD_MS = 90;
-const TICK_MS = 40;
-const MAX_CATCHUP_STEPS = 16;
+const STEPS_PER_BAR = 8;          // eighth notes per bar
+const AHEAD_MS = 90;              // scheduler lookahead
+const POLL_MS = 40;               // scheduler tick interval
+const CATCHUP_CAP = 16;           // max steps scheduled per tick
 const BUS_VOLUME = 0.12;
-// Lead arp skips every third step for rhythmic lift.
-const LEAD_SKIP = 3;
+const ARP_SKIP = 3;               // lead rests every ARP_SKIP-th step
+const START_DELAY = 0.05;         // breathing room between start() and note 1
 
-// Sequencer tick: eighth notes — stepDur = 60 / bpm / 2.
-function stepDuration(bpm) {
+// One step = one eighth note.
+function stepLength(bpm) {
   return 60 / bpm / 2;
 }
 
@@ -60,12 +64,12 @@ export class Radio {
     this.step = 0;
     this.timer = null;
     this.nextTime = 0;
-    this.active = false;    // true while the player is in a car
-    this.enabled = true;    // player mute toggle (K)
-    this.gain = null;       // radio bus, lazily created off sfx.ctx
+    this.active = false;    // true while the player sits in a car
+    this.enabled = true;    // the K-key mute latch
+    this.gain = null;       // radio bus, built lazily off sfx.ctx
   }
 
-  // One gain node for the whole radio, created only when audio exists.
+  // One bus gain for the whole dial; exists only when audio does.
   _ensureBus() {
     if (!this.sfx.ctx || this.gain) return;
     this.gain = this.sfx.ctx.createGain();
@@ -73,9 +77,9 @@ export class Radio {
     this.gain.connect(this.sfx.master);
   }
 
-  station() { return STATIONS[this.stationIndex]; }
+  station() { return DIAL[this.stationIndex]; }
 
-  // Enter / leave a car. Idempotent: re-calling with the same state is a no-op.
+  // Enter / leave a car. Idempotent: re-calling with the same state is free.
   setInCar(inCar) {
     if (inCar === this.active) return;
     this.active = inCar;
@@ -89,12 +93,12 @@ export class Radio {
 
   start() {
     if (!this.sfx.ctx || this.timer) return;
-    if (this.station().id === 'off') return;
-    if (!this.enabled) return;      // muted: never start a silent scheduler
+    if (this.station().id === 'off') return;   // silence is not a scheduler
+    if (!this.enabled) return;                 // muted: never schedule silently
     this._ensureBus();
-    this.nextTime = this.sfx.ctx.currentTime + 0.05;
+    this.nextTime = this.sfx.ctx.currentTime + START_DELAY;
     this.step = 0;
-    this.timer = setInterval(() => this._schedule(), TICK_MS);
+    this.timer = setInterval(() => this._schedule(), POLL_MS);
   }
 
   stop() {
@@ -102,18 +106,18 @@ export class Radio {
       clearInterval(this.timer);
       this.timer = null;
     }
-    this.nextTime = 0;   // discard accumulated lookahead before the next resume
+    this.nextTime = 0;   // drop accumulated lookahead before the next resume
   }
 
-  // Station cycling. Both directions wrap, including the RADIO OFF slot, and
-  // restart the sequencer only when the new station actually plays.
+  // Dial rotation. Both directions wrap (including RADIO OFF) and the
+  // sequencer restarts only when the new station actually plays.
   next() {
-    this.stationIndex = (this.stationIndex + 1) % STATIONS.length;
+    this.stationIndex = (this.stationIndex + 1) % DIAL.length;
     return this._retune();
   }
 
   prev() {
-    this.stationIndex = (this.stationIndex + STATIONS.length - 1) % STATIONS.length;
+    this.stationIndex = (this.stationIndex + DIAL.length - 1) % DIAL.length;
     return this._retune();
   }
 
@@ -134,39 +138,39 @@ export class Radio {
     return this.enabled;
   }
 
-  // Sequencer: schedule audio-graph events up to LOOKAHEAD ahead of "now",
-  // with a hard cap on steps per tick so catch-up after a throttled tab can
-  // never spike the audio thread.
+  // Sequencer core: schedule notes up to AHEAD_MS ahead of "now", with a hard
+  // cap on steps per tick so catch-up after a throttled tab stays a trickle.
   _schedule() {
     if (!this.sfx.ctx || !this.gain) return;
     if (this.sfx.ctx.state !== 'running') return;
     const st = this.station();
     if (st.id === 'off') { this.stop(); return; }
-    const stepDur = stepDuration(st.bpm);   // eighth notes
+    const stepDur = stepLength(st.bpm);
     let guard = 0;
     while (
-      this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000 &&
-      guard++ < MAX_CATCHUP_STEPS
+      this.nextTime < this.sfx.ctx.currentTime + AHEAD_MS / 1000 &&
+      guard++ < CATCHUP_CAP
     ) {
       const s = this.step % STEPS_PER_BAR;
       const t = this.nextTime;
-      // Bass: root-driven pattern with a gated envelope.
+      // Bass: root-driven pattern through a gated envelope, every step.
       const deg = st.scale[st.pattern[s] % st.scale.length];
-      this._blip(st.root * Math.pow(2, deg / 12), stepDur * 1.7, st.wave, 0.5, t);
-      // Lead arp one octave up, quieter, skipping every third step for lift.
-      if (s % LEAD_SKIP !== LEAD_SKIP - 1) {
+      this._voice(st.root * Math.pow(2, deg / 12), stepDur * 1.7, st.wave, 0.5, t);
+      // Lead arp an octave up, quieter, resting every third step for lift.
+      if (s % ARP_SKIP !== ARP_SKIP - 1) {
         const li = (this.step * 5) % st.scale.length;
-        this._blip(st.root * 4 * Math.pow(2, st.scale[li] / 12), stepDur * 0.8, st.lead, 0.16, t);
+        this._voice(st.root * 4 * Math.pow(2, st.scale[li] / 12), stepDur * 0.8, st.lead, 0.16, t);
       }
-      // Hats on off-beats, kick on downbeats.
-      if (s % 2 === 1) this._hat(t);
-      if (s % 4 === 0) this._kick(t);
+      // Hats ride the off-beats; the kick lands on downbeats.
+      if (s % 2 === 1) this._cymbal(t);
+      if (s % 4 === 0) this._thump(t);
       this.step++;
       this.nextTime += stepDur;
     }
   }
 
-  _blip(freq, dur, type, vol, when) {
+  // One enveloped oscillator note into the radio bus.
+  _voice(freq, dur, type, vol, when) {
     if (!this.sfx.ctx || !this.gain) return;
     const o = this.sfx.ctx.createOscillator();
     const g = this.sfx.ctx.createGain();
@@ -181,8 +185,8 @@ export class Radio {
     o.stop(when + dur + 0.02);
   }
 
-  // Closed hi-hat: short decaying noise burst through a highpass.
-  _hat(when) {
+  // Closed hi-hat: a fading white-noise burst through a highpass.
+  _cymbal(when) {
     if (!this.sfx.ctx || !this.gain) return;
     const len = Math.floor(this.sfx.ctx.sampleRate * 0.04);
     const buf = this.sfx.ctx.createBuffer(1, len, this.sfx.ctx.sampleRate);
@@ -201,8 +205,8 @@ export class Radio {
     src.start(when);
   }
 
-  // Kick: pitch-dropping sine, the classic 140 Hz → 45 Hz thump.
-  _kick(when) {
+  // Kick: the classic pitch-dropping sine thump, 140 Hz down to 45 Hz.
+  _thump(when) {
     if (!this.sfx.ctx || !this.gain) return;
     const o = this.sfx.ctx.createOscillator();
     const g = this.sfx.ctx.createGain();
@@ -217,17 +221,17 @@ export class Radio {
     o.stop(when + 0.16);
   }
 
-  // Station-change sting: a quick rising arpeggio of the station's scale.
+  // Station-change sting: a quick rising run through the station's scale.
   jingle() {
     const st = this.station();
     if (st.id === 'off' || !this.sfx.ctx) return;
     const t0 = this.sfx.ctx.currentTime;
     st.scale.slice(0, 4).forEach((deg, i) => {
-      this._blip(st.root * 8 * Math.pow(2, deg / 12), 0.1, 'square', 0.2, t0 + i * 0.07);
+      this._voice(st.root * 8 * Math.pow(2, deg / 12), 0.1, 'square', 0.2, t0 + i * 0.07);
     });
   }
 
-  // HUD readout. Empty string when on foot; explicit label when muted.
+  // HUD readout. Empty on foot; an explicit line while muted.
   label() {
     if (!this.active) return '';
     if (!this.enabled) return '🔇 Muted';
