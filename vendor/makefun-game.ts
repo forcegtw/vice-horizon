@@ -1,9 +1,9 @@
 // vendor/makefun-game.ts — the make.fun entry library, re-authored for Vice
 // Horizon. Node 22 standard library only, erasable TypeScript: it runs under
 // plain `node main.ts` with no flags, no transpile and no install. main.ts
-// imports one symbol, buildDossier, and hands it the output directory plus the
-// gate's caps; this file does the rest — walking game/, parsing the page,
-// ordering the sources, and serialising the dossier as canonical JSON.
+// imports exactly one symbol, buildDossier, and hands it the output directory
+// plus the gate's caps; this file does the rest — walking game/, parsing the
+// page, ordering the sources, and serialising the dossier as canonical JSON.
 //
 // Public surface (every name main.ts and the scorer may rely on):
 //   constants           DOSSIER_SCHEMA, DOSSIER_MAX_BYTES, DOSSIER_MAX_IMAGES,
@@ -28,17 +28,18 @@
 //   canonicalJson       JSON, keys sorted, no whitespace
 //   buildDossier        the whole dossier, canonical JSON bytes
 //
-// The dossier contract this file implements is makefun/dossier/v1. The text is
-// a "## Game" block (counts by class, totals) then the sources in load order —
-// index.html first, then the module graph the page reaches depth-first, then
-// every remaining source by path — each under a "### game/<path> (<n> lines,
-// <m> bytes)" heading with its text in a fenced block. The text is cut at
-// caps.text_max_bytes: whole files until one does not fit, that one up to its
-// last complete fitting line, then a single cut line and nothing else.
+// The dossier contract this file implements is makefun/dossier/v1. The text
+// is a "## Game" block (counts by class, totals) then the sources in load
+// order — index.html first, then the module graph the page reaches
+// depth-first, then every remaining source by path — each under a
+// "### game/<path> (<n> lines, <m> bytes)" heading with its text in a fenced
+// block. The text is cut at caps.text_max_bytes: whole files until one does
+// not fit, that one up to its last complete fitting line, then a single cut
+// line and nothing else.
 //
-// Every byte of the text the dossier carries is fixed by the contract, so the
-// exact strings below ("## Game", "Source files: ", "### game/", the cut line
-// and so on) are the contract's, not style choices.
+// Every byte of the text the dossier carries is fixed by the contract, so
+// the exact strings below ("## Game", "Source files: ", "### game/", the cut
+// line and so on) are the contract's, not style choices.
 
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
@@ -67,10 +68,6 @@ export const INDEX_HTML_MAX_BYTES = 1024 * 1024;
 /** A game file path's byte cap, relative to game/. */
 export const GAME_PATH_MAX_BYTES = 1000;
 
-/** How many vendored files the Game block names by path before it says "and N more".
- *  24 keeps one line of the block even for a game that vendors a whole framework tree. */
-const VENDORED_SHOWN = 24;
-
 /** Extensions that make a file a source (matched case-insensitively). */
 export const SOURCE_EXTENSIONS = ['html', 'js', 'mjs', 'css', 'glsl', 'vert', 'frag', 'wgsl', 'json'] as const;
 
@@ -82,6 +79,9 @@ const SOURCE_NAME = new RegExp(`\\.(?:${SOURCE_EXTENSIONS.join('|')})$`, 'i');
 
 /** Only .js/.mjs texts are walked for static imports. */
 const MODULE_NAME = /\.(?:js|mjs)$/i;
+
+/** How many vendored files the Game block names before "and N more". */
+const VENDORED_SHOWN = 24;
 
 // ---------------------------------------------------------------- types
 
@@ -213,9 +213,9 @@ const text = (bytes: Uint8Array): string => utf8.decode(bytes);
 /** A file's line count: 0 when empty, else newline count plus an unterminated tail. */
 function lineCount(bytes: Uint8Array): number {
   if (bytes.length === 0) return 0;
-  let n = 0;
-  for (const b of bytes) if (b === 0x0a) n++;
-  return bytes[bytes.length - 1] === 0x0a ? n : n + 1;
+  let lines = 0;
+  for (const b of bytes) if (b === 0x0a) lines++;
+  return bytes[bytes.length - 1] === 0x0a ? lines : lines + 1;
 }
 
 /** A fence one backtick longer than the longest backtick run in the body, three at least, so a run inside the source itself can never close the block early. */
@@ -239,8 +239,8 @@ function languageOf(path: string): string {
 // ---------------------------------------------------------------- game tree
 
 /** A caller's GameCaps checked and defaulted: missing means unbounded. */
-function gameCapsOf(caps: GameCaps, who: string): Record<keyof GameCaps, number> {
-  const out: Record<keyof GameCaps, number> = {
+function checkedGameCaps(caps: GameCaps, who: string): Record<keyof GameCaps, number> {
+  const limits: Record<keyof GameCaps, number> = {
     game_max_files: Infinity,
     game_max_bytes: Infinity,
     game_path_max_bytes: GAME_PATH_MAX_BYTES,
@@ -251,15 +251,15 @@ function gameCapsOf(caps: GameCaps, who: string): Record<keyof GameCaps, number>
     if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
       throw new TypeError(`${who}: caps.${k} must be a whole number, not ${String(v)}`);
     }
-    out[k] = v;
+    limits[k] = v;
   }
-  return out;
+  return limits;
 }
 
 /**
- * A path's class. Vendored wins first — anything under a folder named vendor,
- * anything named *.min.js/*.min.mjs/*.min.css — then a source extension makes
- * it source, and the rest is an asset.
+ * A path's class. Vendored wins first — anything under a folder named
+ * vendor, anything named *.min.js/*.min.mjs/*.min.css — then a source
+ * extension makes it source, and the rest is an asset.
  */
 export function classifyGamePath(path: string): GameFileClass {
   const segs = path.split('/');
@@ -274,12 +274,12 @@ export function isSourcePath(path: string): boolean {
 }
 
 /**
- * Walk game/ once, depth-first, refusing symbolic links and special files and
- * anything past a cap: too many entries, too many bytes, a path too long.
- * Throws DossierError, its limit naming the cap that refused.
+ * Walk game/ once, depth-first, refusing symbolic links and special files
+ * and anything past a cap: too many entries, too many bytes, a path too
+ * long. Throws DossierError, its limit naming the cap that refused.
  */
 export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
-  const c = gameCapsOf(caps, 'readGameTree');
+  const limits = checkedGameCaps(caps, 'readGameTree');
   let root;
   try {
     root = lstatSync(gameDir);
@@ -306,9 +306,9 @@ export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
     for (const e of entries) {
       const path = rel === '' ? e.name : `${rel}/${e.name}`;
       const pathBytes = byteLength(path);
-      if (pathBytes > c.game_path_max_bytes) {
+      if (pathBytes > limits.game_path_max_bytes) {
         throw new DossierError(
-          `game/${path}: a path of ${pathBytes} bytes, over the ${c.game_path_max_bytes} allowed (game_path_max_bytes)`,
+          `game/${path}: a path of ${pathBytes} bytes, over the ${limits.game_path_max_bytes} allowed (game_path_max_bytes)`,
           'game_path_max_bytes',
         );
       }
@@ -319,9 +319,9 @@ export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
         throw new DossierError(`game/${path}: cannot be read`);
       }
       count++;
-      if (count > c.game_max_files) {
+      if (count > limits.game_max_files) {
         throw new DossierError(
-          `game/: holds more than the ${c.game_max_files} files and directories allowed (game_max_files)`,
+          `game/: holds more than the ${limits.game_max_files} files and directories allowed (game_max_files)`,
           'game_max_files',
         );
       }
@@ -330,9 +330,9 @@ export function readGameTree(gameDir: string, caps: GameCaps = {}): GameTree {
         stack.push(path);
       } else if (st.isFile()) {
         totalBytes += st.size;
-        if (totalBytes > c.game_max_bytes) {
+        if (totalBytes > limits.game_max_bytes) {
           throw new DossierError(
-            `game/: its files come to more than the ${c.game_max_bytes} bytes allowed (game_max_bytes)`,
+            `game/: its files come to more than the ${limits.game_max_bytes} bytes allowed (game_max_bytes)`,
             'game_max_bytes',
           );
         }
@@ -372,7 +372,7 @@ function readIndexHtml(gameDir: string, tree: GameTree): Uint8Array {
 const RESOURCE_TAGS = ['img', 'source', 'video', 'audio', 'iframe'] as const;
 
 /** Where a tag ends, honouring quoted attribute values; -1 when it never does. */
-function tagEnd(html: string, from: number): number {
+function endOfTag(html: string, from: number): number {
   let quote = '';
   for (let i = from; i < html.length; i++) {
     const ch = html[i]!;
@@ -388,7 +388,7 @@ function tagEnd(html: string, from: number): number {
 }
 
 /** A tag body's attributes, lowercased names, unquoted values, no-value names ''. */
-function attributesOf(body: string): Map<string, string> {
+function parseAttributes(body: string): Map<string, string> {
   const out = new Map<string, string>();
   let i = 0;
   while (i < body.length) {
@@ -404,9 +404,9 @@ function attributesOf(body: string): Map<string, string> {
       while (i < body.length && /\s/.test(body[i]!)) i++;
       const quote = body[i];
       if (quote === '"' || quote === "'") {
-        const end = body.indexOf(quote, i + 1);
-        value = body.slice(i + 1, end < 0 ? body.length : end);
-        i = end < 0 ? body.length : end + 1;
+        const stop = body.indexOf(quote, i + 1);
+        value = body.slice(i + 1, stop < 0 ? body.length : stop);
+        i = stop < 0 ? body.length : stop + 1;
       } else {
         const s = i;
         while (i < body.length && !/[\s>]/.test(body[i]!)) i++;
@@ -419,7 +419,7 @@ function attributesOf(body: string): Map<string, string> {
 }
 
 /** Where `</name` starts at or after `from`, ASCII case-insensitive; -1 when none. */
-function closeIndexOf(html: string, from: number, name: string): number {
+function findCloseTag(html: string, from: number, name: string): number {
   const needle = `</${name}`;
   for (let i = from; i + needle.length <= html.length; i++) {
     if (html[i] !== '<') continue;
@@ -466,12 +466,12 @@ export function htmlFacts(html: string): HtmlFacts {
       continue;
     }
     if (tagAt(html, at, 'script')) {
-      const end = tagEnd(html, at + 7);
+      const end = endOfTag(html, at + 7);
       if (end < 0) break;
-      const attrs = attributesOf(html.slice(at + 7, end));
+      const attrs = parseAttributes(html.slice(at + 7, end));
       const type = (attrs.get('type') ?? '').trim().toLowerCase();
       const src = attrs.get('src') ?? null;
-      const close = closeIndexOf(html, end + 1, 'script');
+      const close = findCloseTag(html, end + 1, 'script');
       const body = src === null ? html.slice(end + 1, close < 0 ? html.length : close) : '';
       i = close < 0 ? html.length : close + 8;
       if (type === 'importmap') {
@@ -489,9 +489,9 @@ export function htmlFacts(html: string): HtmlFacts {
       continue;
     }
     if (tagAt(html, at, 'link')) {
-      const end = tagEnd(html, at + 5);
+      const end = endOfTag(html, at + 5);
       if (end < 0) break;
-      const attrs = attributesOf(html.slice(at + 5, end));
+      const attrs = parseAttributes(html.slice(at + 5, end));
       const href = attrs.get('href');
       if (href !== undefined) links.push({ href, rel: (attrs.get('rel') ?? '').trim().toLowerCase() });
       i = end + 1;
@@ -499,15 +499,15 @@ export function htmlFacts(html: string): HtmlFacts {
     }
     const tag = RESOURCE_TAGS.find((name) => tagAt(html, at, name));
     if (tag !== undefined) {
-      const end = tagEnd(html, at + 1 + tag.length);
+      const end = endOfTag(html, at + 1 + tag.length);
       if (end < 0) break;
-      const attrs = attributesOf(html.slice(at + 1 + tag.length, end));
+      const attrs = parseAttributes(html.slice(at + 1 + tag.length, end));
       const src = attrs.get('src');
       if (src !== undefined) resources.push({ tag, src });
       i = end + 1;
       continue;
     }
-    const end = tagEnd(html, at + 1);
+    const end = endOfTag(html, at + 1);
     i = end < 0 ? html.length : end + 1;
   }
   return { scripts, links, resources, importMaps };
@@ -522,11 +522,25 @@ function setOwn<T>(o: Record<string, T>, key: string, value: T): void {
   Object.defineProperty(o, key, { value, enumerable: true, writable: true, configurable: true });
 }
 
+/** One import-map table's string-or-null entries, or the reason it is invalid. */
+function readEntries(raw: unknown, where: string): { entries: Record<string, string | null> } | { problem: string } {
+  if (!isObject(raw)) return { problem: `index.html's import map holds ${where} that is not an object` };
+  const entries: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value !== null && typeof value !== 'string') {
+      return { problem: `index.html's import map maps ${JSON.stringify(key)} to no string` };
+    }
+    setOwn(entries, key, value);
+  }
+  return { entries };
+}
+
 /**
- * The page's import map: none (map and error null) when it has no import-map
- * block, otherwise its single map or the reason it is unusable — two blocks,
- * text that is not JSON, or a shape an import map does not take. "imports"
- * and "scopes" are each optional; a null value survives: it blocks.
+ * The page's import map: none (map and error null) when it has no
+ * import-map block, otherwise its single map or the reason it is unusable —
+ * two blocks, text that is not JSON, or a shape an import map does not
+ * take. "imports" and "scopes" are each optional; a null value survives: it
+ * blocks.
  */
 export function importMapOf(facts: HtmlFacts): ImportMapRead {
   if (facts.importMaps.length === 0) return { map: null, error: null };
@@ -536,37 +550,20 @@ export function importMapOf(facts: HtmlFacts): ImportMapRead {
   const only = facts.importMaps[0]!;
   if (only.error !== null) return { map: null, error: `index.html's import map is not JSON (${only.error})` };
   if (!isObject(only.value)) return { map: null, error: "index.html's import map is not a JSON object" };
-  const importsRaw = only.value.imports ?? {};
-  if (!isObject(importsRaw)) return { map: null, error: 'index.html\'s import map holds an "imports" that is not an object' };
-  const imports: Record<string, string | null> = {};
-  for (const [key, value] of Object.entries(importsRaw)) {
-    if (value !== null && typeof value !== 'string') {
-      return { map: null, error: `index.html's import map maps ${JSON.stringify(key)} to no string` };
-    }
-    setOwn(imports, key, value);
-  }
+
+  const topImports = readEntries(only.value.imports ?? {}, 'an "imports"');
+  if ('problem' in topImports) return { map: null, error: topImports.problem };
+
   const scopes: Record<string, Record<string, string | null>> = {};
-  const scopesRaw = only.value.scopes;
-  if (scopesRaw !== undefined) {
-    if (!isObject(scopesRaw)) return { map: null, error: 'index.html\'s import map holds a "scopes" that is not an object' };
-    for (const [scope, entries] of Object.entries(scopesRaw)) {
-      if (!isObject(entries)) {
-        return { map: null, error: `index.html's import map scope ${JSON.stringify(scope)} is not an object` };
-      }
-      const inner: Record<string, string | null> = {};
-      for (const [key, value] of Object.entries(entries)) {
-        if (value !== null && typeof value !== 'string') {
-          return {
-            map: null,
-            error: `index.html's import map scope ${JSON.stringify(scope)} maps ${JSON.stringify(key)} to no string`,
-          };
-        }
-        setOwn(inner, key, value);
-      }
-      setOwn(scopes, scope, inner);
+  if (only.value.scopes !== undefined) {
+    if (!isObject(only.value.scopes)) return { map: null, error: 'index.html\'s import map holds a "scopes" that is not an object' };
+    for (const [scope, table] of Object.entries(only.value.scopes)) {
+      const inner = readEntries(table, `scope ${JSON.stringify(scope)}`);
+      if ('problem' in inner) return { map: null, error: inner.problem };
+      setOwn(scopes, scope, inner.entries);
     }
   }
-  return { map: { imports, scopes }, error: null };
+  return { map: { imports: topImports.entries, scopes }, error: null };
 }
 
 // ---------------------------------------------------------------- references
@@ -585,9 +582,9 @@ export function isRelativeSpecifier(specifier: string): boolean {
 }
 
 /**
- * The game/ path a relative reference names, resolved against `from` (a POSIX
- * path relative to game/). Query and fragment are dropped; null when the
- * reference is not relative, names nothing, or climbs out of game/.
+ * The game/ path a relative reference names, resolved against `from` (a
+ * POSIX path relative to game/). Query and fragment are dropped; null when
+ * the reference is not relative, names nothing, or climbs out of game/.
  */
 export function resolveGamePath(ref: string, from: string): string | null {
   if (!isRelativeRef(ref)) return null;
@@ -609,7 +606,7 @@ export function resolveGamePath(ref: string, from: string): string | null {
 }
 
 /** The entry for a specifier in one map: exact key first, then the longest key ending in /. */
-function entryOf(entries: Record<string, string | null>, specifier: string): ImportMapMatch {
+function lookupEntry(entries: Record<string, string | null>, specifier: string): ImportMapMatch {
   if (Object.hasOwn(entries, specifier)) return { found: true, value: entries[specifier]! };
   let best: string | null = null;
   for (const key of Object.keys(entries)) {
@@ -622,7 +619,7 @@ function entryOf(entries: Record<string, string | null>, specifier: string): Imp
 }
 
 /** The game path a scope key prefixes, or null when it cannot name one. */
-function scopePath(scope: string): string | null {
+function scopePrefix(scope: string): string | null {
   const cut = scope.search(/[?#]/);
   const raw = cut < 0 ? scope : scope.slice(0, cut);
   if (raw === '.' || raw === './') return '';
@@ -631,22 +628,22 @@ function scopePath(scope: string): string | null {
 
 /**
  * What the page's import map says for `specifier` imported from `from` (a
- * game/ path; index.html for an inline script): the matching scope's map with
- * the longest URL prefix first, then the top-level imports.
+ * game/ path; index.html for an inline script): the matching scope's map
+ * with the longest URL prefix first, then the top-level imports.
  */
 export function importMapMatch(map: ImportMap | null, specifier: string, from: string = INDEX_HTML): ImportMapMatch {
   if (map === null) return { found: false, value: null };
   let best: { prefix: string; entries: Record<string, string | null> } | null = null;
   for (const [scope, entries] of Object.entries(map.scopes)) {
-    const prefix = scopePath(scope);
+    const prefix = scopePrefix(scope);
     if (prefix === null || !from.startsWith(prefix)) continue;
     if (best === null || prefix.length > best.prefix.length) best = { prefix, entries };
   }
   if (best !== null) {
-    const scoped = entryOf(best.entries, specifier);
+    const scoped = lookupEntry(best.entries, specifier);
     if (scoped.found) return scoped;
   }
-  return entryOf(map.imports, specifier);
+  return lookupEntry(map.imports, specifier);
 }
 
 /** importMapMatch's value, or null when nothing maps the specifier or a null entry blocks it. */
@@ -656,7 +653,7 @@ export function mappedSpecifier(map: ImportMap | null, specifier: string, from: 
 }
 
 /** The game path a specifier names from `from`, by relative resolution or the import map. */
-function resolveSpecifier(specifier: string, from: string, map: ImportMap | null): string | null {
+function resolveModuleRef(specifier: string, from: string, map: ImportMap | null): string | null {
   if (isRelativeSpecifier(specifier)) return resolveGamePath(specifier, from);
   const match = importMapMatch(map, specifier, from);
   if (!match.found || match.value === null || !isRelativeRef(match.value)) return null;
@@ -674,19 +671,19 @@ const IDENT = /[A-Za-z0-9_$]/;
  * literals and regular-expression literals, so none of their contents can be
  * misread as imports. It recognises the four clause shapes — `import 'x'`,
  * `import ... from 'x'`, `export ... from 'x'`, `export * from 'x'` — and
- * leaves dynamic `import(...)` and `import.meta` alone. This is not a parser;
- * anything it cannot make sense of is left for the gate to judge.
+ * leaves dynamic `import(...)` and `import.meta` alone. This is not a
+ * parser; anything it cannot make sense of is left for the gate to judge.
  */
 export function sourceImports(source: string): string[] {
-  const out: string[] = [];
+  const specs: string[] = [];
   const n = source.length;
   let i = 0;
-  let prev = '';
+  let prevToken = '';
 
   // Regex-or-division guess: a / after nothing or an operator/keyword opener starts a regex.
-  const regexPosition = (p: string): boolean => p === '' || '([{,;:=!&|?+-*%^~<>'.includes(p);
+  const regexAllowed = (p: string): boolean => p === '' || '([{,;:=!&|?+-*%^~<>'.includes(p);
 
-  const skipSpace = (): void => {
+  const skipBlank = (): void => {
     for (;;) {
       while (i < n && /\s/.test(source[i]!)) i++;
       if (source.startsWith('//', i)) {
@@ -694,35 +691,37 @@ export function sourceImports(source: string): string[] {
         continue;
       }
       if (source.startsWith('/*', i)) {
-        const end = source.indexOf('*/', i + 2);
-        i = end < 0 ? n : end + 2;
+        const stop = source.indexOf('*/', i + 2);
+        i = stop < 0 ? n : stop + 2;
         continue;
       }
       return;
     }
   };
-  const skipString = (quote: string): string | null => {
+
+  const readQuoted = (quote: string): string | null => {
     i++;
-    let s = '';
+    let out = '';
     while (i < n) {
       const ch = source[i]!;
       if (ch === quote) {
         i++;
-        return s;
+        return out;
       }
       if (ch === '\\') {
         const next = source[i + 1];
         if (next === undefined) return null;
-        s += next === 'n' ? '\n' : next === 't' ? '\t' : next === 'r' ? '\r' : next;
+        out += next === 'n' ? '\n' : next === 't' ? '\t' : next === 'r' ? '\r' : next;
         i += 2;
         continue;
       }
       if (ch === '\n') return null;
-      s += ch;
+      out += ch;
       i++;
     }
     return null;
   };
+
   const skipTemplate = (): void => {
     i++;
     while (i < n) {
@@ -738,6 +737,7 @@ export function sourceImports(source: string): string[] {
       i++;
     }
   };
+
   const skipRegex = (): void => {
     i++;
     let inClass = false;
@@ -756,31 +756,36 @@ export function sourceImports(source: string): string[] {
       i++;
     }
   };
+
   const readWord = (): string => {
     const start = i;
     while (i < n && IDENT.test(source[i]!)) i++;
     return source.slice(start, i);
   };
-  const maybeString = (): string | null => {
-    skipSpace();
+
+  const maybeSpecifier = (): string | null => {
+    skipBlank();
     const ch = source[i];
     if (ch !== '"' && ch !== "'") return null;
-    return skipString(ch);
+    return readQuoted(ch);
   };
-  const clause = (stopAt: string[]): string | null => {
+
+  // Walk an import/export clause up to its specifier string, or null when a
+  // stop character (an assignment, say) ends the statement first.
+  const clause = (stops: string[]): string | null => {
     for (;;) {
-      skipSpace();
+      skipBlank();
       if (i >= n) return null;
       const ch = source[i]!;
-      if (stopAt.includes(ch)) return null;
-      if (ch === '"' || ch === "'") return skipString(ch);
+      if (stops.includes(ch)) return null;
+      if (ch === '"' || ch === "'") return readQuoted(ch);
       if (ch === '{' || ch === '}' || ch === ',' || ch === '*') {
         i++;
         continue;
       }
       if (IDENT_START.test(ch)) {
         const word = readWord();
-        if (word === 'from') return maybeString();
+        if (word === 'from') return maybeSpecifier();
         if (word === 'as' || word === 'type') continue;
         continue;
       }
@@ -789,48 +794,48 @@ export function sourceImports(source: string): string[] {
   };
 
   while (i < n) {
-    skipSpace();
+    skipBlank();
     if (i >= n) break;
     const ch = source[i]!;
     if (ch === '"' || ch === "'") {
-      skipString(ch);
-      prev = ch;
+      readQuoted(ch);
+      prevToken = ch;
       continue;
     }
     if (ch === '`') {
       skipTemplate();
-      prev = '`';
+      prevToken = '`';
       continue;
     }
     if (ch === '/') {
-      if (regexPosition(prev)) skipRegex();
+      if (regexAllowed(prevToken)) skipRegex();
       else i++;
-      prev = '/';
+      prevToken = '/';
       continue;
     }
     if (IDENT_START.test(ch)) {
       const word = readWord();
-      prev = 'a';
+      prevToken = 'a';
       if (word === 'import') {
-        skipSpace();
-        if (source[i] === '(' || source[i] === '.') continue;
+        skipBlank();
+        if (source[i] === '(' || source[i] === '.') continue;   // dynamic import / import.meta
         const spec = clause(['=', ';']);
-        if (spec !== null) out.push(spec);
+        if (spec !== null) specs.push(spec);
         continue;
       }
       if (word === 'export') {
-        skipSpace();
+        skipBlank();
         if (source[i] !== '*' && source[i] !== '{') continue;
         const spec = clause(['=', ';']);
-        if (spec !== null) out.push(spec);
+        if (spec !== null) specs.push(spec);
         continue;
       }
       continue;
     }
-    prev = ch;
+    prevToken = ch;
     i++;
   }
-  return out;
+  return specs;
 }
 
 // ---------------------------------------------------------------- load order
@@ -866,9 +871,9 @@ function isClassicScript(type: string): boolean {
  * and is not walked (classic scripts import nothing), a module script's src
  * or inline text starts a depth-first walk of its static imports — each
  * module reached once, its own imports in source order. Specifiers resolve
- * relative to the importer or through the page's import map. A reference that
- * resolves to no source module is skipped; index.html itself is never in the
- * result.
+ * relative to the importer or through the page's import map. A reference
+ * that resolves to no source module is skipped; index.html itself is never
+ * in the result.
  */
 export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): string[] {
   const byPath = new Map(sources.map((s) => [s.path, s]));
@@ -885,7 +890,7 @@ export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): s
     order.push(path);
     if (!walk) return;
     for (const specifier of sourceImports(textOf(path))) {
-      const target = resolveSpecifier(specifier, path, map);
+      const target = resolveModuleRef(specifier, path, map);
       if (target !== null) visit(target);
     }
   };
@@ -901,11 +906,11 @@ export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): s
       // A src attribute is a URL reference, not a specifier: relative to the page.
       const target = isRelativeRef(script.src)
         ? resolveGamePath(script.src, INDEX_HTML)
-        : resolveSpecifier(script.src, INDEX_HTML, map);
+        : resolveModuleRef(script.src, INDEX_HTML, map);
       if (target !== null) visit(target);
     } else {
       for (const specifier of sourceImports(script.text)) {
-        const target = resolveSpecifier(specifier, INDEX_HTML, map);
+        const target = resolveModuleRef(specifier, INDEX_HTML, map);
         if (target !== null) visit(target);
       }
     }
@@ -917,8 +922,9 @@ export function importOrder(sources: readonly GameSource[], facts: HtmlFacts): s
 
 /**
  * JSON with every object's keys in code-unit order and no whitespace. Takes
- * null, booleans, finite numbers, strings, arrays and plain objects; anything
- * else (undefined, a function, a bigint, NaN, a class instance) is a TypeError.
+ * null, booleans, finite numbers, strings, arrays and plain objects;
+ * anything else (undefined, a function, a bigint, NaN, a class instance) is
+ * a TypeError.
  */
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
@@ -960,7 +966,7 @@ const extensionOf = (path: string): string => {
 };
 
 /** The "## Game" block's lines: the counts by class and the totals, no source text. */
-function gameBlockLines(tree: GameTree): string[] {
+function gameBlock(tree: GameTree): string[] {
   const source = tree.files.filter((f) => f.cls === 'source');
   const vendored = tree.files.filter((f) => f.cls === 'vendored');
   const assets = tree.files.filter((f) => f.cls === 'asset');
@@ -1004,14 +1010,14 @@ interface SourceCode {
 }
 
 /**
- * A source's section cut inside its own text: heading, first k complete lines
- * in a closed fence, a line naming the hidden remainder, then `tail(hidden)`
- * (the cut line, charged with the bytes this source leaves out). k is the
- * most whole lines, at least one and fewer than all, that fit in `room` bytes;
- * null when not even one does. Cuts fall only after an LF, so no UTF-8
- * sequence or replacement character is ever split.
+ * A source's section cut inside its own text: heading, first k complete
+ * lines in a closed fence, a line naming the hidden remainder, then
+ * `tail(hidden)` (the cut line, charged with the bytes this source leaves
+ * out). k is the most whole lines, at least one and fewer than all, that fit
+ * in `room` bytes; null when not even one does. Cuts fall only after an LF,
+ * so no UTF-8 sequence or replacement character is ever split.
  */
-function sourceHead(
+function sectionHead(
   heading: string,
   code: { norm: Uint8Array; text: string; fence: string },
   language: string,
@@ -1070,7 +1076,9 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
       }
     }
     if ((s.max as number) < maxImages.n) maxImages = { n: s.max as number, whose: 'caps.screenshots.max allows' };
-    if ((s.max_bytes as number) < maxImageBytes.n) maxImageBytes = { n: s.max_bytes as number, whose: 'caps.screenshots.max_bytes allows' };
+    if ((s.max_bytes as number) < maxImageBytes.n) {
+      maxImageBytes = { n: s.max_bytes as number, whose: 'caps.screenshots.max_bytes allows' };
+    }
   }
   const gameCaps: GameCaps = {};
   for (const k of ['game_max_files', 'game_max_bytes', 'game_path_max_bytes'] as const) {
@@ -1170,7 +1178,7 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
   });
 
   // Sections in text order; restBytes[k] is the source bytes of everything after section k.
-  const head = [...gameBlockLines(tree), '', '## Sources', '', ''].join('\n');
+  const head = [...gameBlock(tree), '', '## Sources', '', ''].join('\n');
   const sections = order.map((path) => {
     const code = codeOf(path);
     const lines = code === null ? 0 : code.lines;
@@ -1208,7 +1216,7 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
     const part =
       first.code === null
         ? null
-        : sourceHead(first.heading, first.code, languageOf(order[kept]!), max - used, (hidden) =>
+        : sectionHead(first.heading, first.code, languageOf(order[kept]!), max - used, (hidden) =>
             cutLine(restCount, after + hidden),
           );
     out += part ?? cutLine(restCount + 1, after + first.bytes);

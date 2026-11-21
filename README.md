@@ -1,8 +1,8 @@
 # Vice Horizon
 
-An open-world crime game that runs in the browser: steal cars, outrun the police, and run
-missions across a neon city — built with three.js (vendored, r160) and plain ES modules,
-no build step.
+An open-world crime playground that runs entirely in the browser: jack cars, rack up heat,
+outrun the cops, and work the city's missions across a neon skyline. Built on a vendored
+three.js r160 with plain ES modules — no framework, no build step, no network calls.
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/forcegtw/vice-horizon/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
@@ -11,7 +11,7 @@ no build step.
 ## Play
 
 ```bash
-node serve.ts        # serve the game at http://localhost:8080
+node serve.ts        # the game comes up at http://localhost:8080
 ```
 
 Controls: **WASD** walk / drive · **Shift** sprint · **F** enter or steal a car · **LMB** attack ·
@@ -20,7 +20,7 @@ Controls: **WASD** walk / drive · **Shift** sprint · **F** enter or steal a ca
 
 ## Features
 
-- Three-quest story chain: boost and deliver a car, a timed cash-cache run, and a rival
+- Three-quest story chain: boost and deliver a car, a timed cash-cache sweep, and a rival
   elimination — glowing 3D markers, HUD briefs, payouts on completion.
 - Side-job board (G): checkpoint races with a start-line gate, timed deliveries with a
   speed bonus (up to +25% for an early haul), and rampage contracts whose kills feed the
@@ -78,8 +78,8 @@ through `economy.bind(state)`; money has a single writer per source — missions
 
 - Runs fully offline: three.js r160 is vendored under `game/vendor/`, audio and textures
   are synthesized at runtime, so the first load needs no network.
-- Saves live in `localStorage` (versioned schema, corrupt entries start fresh); delete
-  site data to reset progress.
+- Saves live in `localStorage` (versioned schema; corrupt entries start fresh) — deleting
+  site data resets progress.
 - Smoke checks: `node scripts/smoke-economy.mjs`, `node scripts/smoke-new-systems.mjs`,
   `node scripts/check-headless.mjs`, and `node scripts/verify-shots.mjs` for
   zero-console-error screenshot runs.

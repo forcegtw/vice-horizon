@@ -1,15 +1,20 @@
-// Verify ?shot=start|play|end render with zero page errors.
-// Starts a tiny static server for game/, screenshots each shot with the
-// headless-shell binary, and fails loudly if the browser reports console or
-// page errors for any shot. A missing PNG also counts as a failure.
+// Shot verifier: the same three staged shots as check-headless, meant for
+// a quick re-run of any subset (`node scripts/verify-shots.mjs play end`).
+// Serves game/ inline on port 8793 (distinct from check-headless' 8791 so
+// the two can run side by side), screenshots each shot with the local
+// chrome-headless-shell, and fails if the browser logs console errors,
+// throws uncaught errors, or no PNG lands. Noise filtering (WebGL chatter,
+// deprecation and fontconfig/dbus logs) is done inline rather than in a
+// second pass, so a single filter decides what counts as a page error.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
 const MIME = Object.freeze({ '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' });
+// Environment chatter that must never count as a page error.
+const NOISE = /WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback|Deprecation|Fontconfig|dbus|DBus/i;
 const root = join(process.cwd(), 'game');
-// Port for this script's inline server: 8793, distinct from check-headless (8791).
 const VERIFY_PORT = 8793;
 const srv = createServer((req, res) => {
   const rel = req.url.split('?')[0];
@@ -34,22 +39,16 @@ for (const shot of shots) {
     const proc = spawn(shell, [
       '--headless', '--no-sandbox', '--disable-gpu',
       '--disable-dev-shm-usage',
-      // Chrome 156+: software WebGL needs an explicit opt-in, or the renderer
-      // dies before the PNG is written (no capture, GPU-state chatter on stderr).
       '--enable-unsafe-swiftshader',
       '--enable-logging=stderr', '--v=0', '--hide-scrollbars',
       `--screenshot=${out}`, '--window-size=1280,720',
-      // Chrome 156: --virtual-time-budget deadlocks with the game's rAF loop
-      // under software WebGL (no PNG ever lands). --timeout gives the same
-      // settle window on the real clock and captures reliably.
       '--timeout=6000',
       `http://127.0.0.1:${VERIFY_PORT}/index.html?shot=${shot}&seed=1`,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr.on('data', (d) => {
       for (const line of d.toString().split('\n')) {
         if (!/CONSOLE|Uncaught|:ERROR:/.test(line)) continue;
-        // WebGL / software-GL chatter is environment noise, not page errors.
-        if (/WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback|Deprecation|Fontconfig|dbus|DBus/i.test(line)) continue;
+        if (NOISE.test(line)) continue;
         errs.push(line.trim().slice(0, 240));
       }
     });

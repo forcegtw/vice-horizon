@@ -1,6 +1,7 @@
-// Node smoke test for the newer modules: missions2 (side jobs), peds2 (life
-// layer), minimap (class shape). Minimal mocks; exercises startNext / update
-// for every job kind, the ped fear path, and the minimap prototype surface.
+// Node smoke test for the newer modules: missions2 (side jobs), peds2 (the
+// life layer above peds), minimap (class shape — a DOM-less canvas can't run
+// here). Minimal mocks; drives startNext/update for every job kind plus the
+// timeout path, the ped fear path, and the minimap prototype surface.
 
 // Checkpoint-chain guard count: buildRoute retries are capped at this so a
 // degenerate road-line list can never spin the loop forever.
@@ -26,8 +27,11 @@ jobs.onReward = (cash) => { rewarded += cash; };
 
 const player = { x: 0, z: 0, inCar: true };
 const world = { time: 1 };
+// Cursor-walk budget when hunting one job kind; the catalogue is small, so
+// this only guards against a kind that is somehow absent from it.
+const KIND_SEEK_GUARD = 20;
 function startKind(kind) {
-  for (let guard = 0; guard < 20; guard++) {
+  for (let guard = 0; guard < KIND_SEEK_GUARD; guard++) {
     const spec = jobs.catalogue[jobs.cursor % jobs.catalogue.length];
     if (spec.kind === kind) return jobs.startNext();
     jobs.cursor++;

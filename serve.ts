@@ -1,10 +1,10 @@
-// serve.ts — tiny static server for game/ (Node 22, standard library only), so
-// the entry can be played locally without a build step:
+// serve.ts — tiny static server for game/ (Node 22, standard library only),
+// so the entry can be played locally with no build step:
 //   node serve.ts            # http://localhost:8080
 //   node serve.ts --port 9000
-// Sends the MIME types a browser game needs, refuses any path outside game/,
-// and otherwise does nothing clever: a development convenience, not an
-// internet-facing web server.
+// It sends the MIME types a browser game needs, refuses any path outside
+// game/, and otherwise does nothing clever: a development convenience, not
+// an internet-facing web server.
 
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -16,7 +16,7 @@ const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 // Default listen port; --port overrides it below.
 const DEFAULT_PORT = 8080;
 
-// --port override; anything non-numeric or out of range falls back to DEFAULT_PORT.
+// --port override; anything non-numeric or out of range falls back to the default.
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
 const requested = portIndex === -1 ? DEFAULT_PORT : Number(args[portIndex + 1]);
@@ -57,8 +57,9 @@ createServer((request, response) => {
     return;
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
-  // normalize() after join would let encoded slashes smuggle paths out of
-  // game/; joining the normalized segments first keeps everything under root.
+  // normalize() applied after join() would let encoded slashes smuggle paths
+  // out of game/; joining the normalized segments first keeps everything
+  // under root.
   const file = resolve(join(root, normalize(pathname)));
   if (file !== root && !file.startsWith(root + sep)) {
     response.writeHead(403).end('forbidden');
@@ -77,8 +78,8 @@ createServer((request, response) => {
     'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
     'content-length': size,
     // no-store keeps an edited src/ from being shadowed by a stale cached
-    // module; the vendored three.min.js never changes mid-session, so it gets
-    // a short-lived cache.
+    // module; the vendored three.min.js never changes mid-session, so it
+    // gets a short-lived cache instead.
     'cache-control': file.includes(`${sep}vendor${sep}`) ? 'private, max-age=3600' : 'no-store',
     'x-content-type-options': 'nosniff',
   });

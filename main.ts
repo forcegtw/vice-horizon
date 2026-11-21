@@ -1,19 +1,21 @@
-// main.ts — the make.fun gta6-01 entry plumbing for Vice Horizon. Node 22,
+// main.ts — Vice Horizon's make.fun gta6-01 entry plumbing. Node 22,
 // standard library only: the game itself is this directory's game/ folder —
-// plain static files a desktop browser loads offline — and this program hands
-// that plus the screenshots to the grader. It copies game/ and screenshots/
-// into MAKEFUN_OUTPUT_DIR (default /output) and writes dossier.json, the
-// judge-facing summary, through the vendored library at vendor/makefun-game.ts.
-// Field names in the dossier are a contract; keep them stable.
+// plain static files a desktop browser loads offline — and this program
+// hands that plus the screenshots to the grader. It copies game/ and
+// screenshots/ into MAKEFUN_OUTPUT_DIR (default /output) and writes
+// dossier.json, the judge-facing summary, through the vendored library at
+// vendor/makefun-game.ts. Dossier field names are a contract; keep them
+// stable.
 //
 // Serve locally with `node serve.ts`, then open http://localhost:8080.
 // Build the output with: mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 //
-// Idempotent: re-running overwrites the output cleanly, so a grader never sees
-// a stale dossier or leftovers from an earlier pass. Screenshot copies are
-// filtered through the scorer's caps first — a shot the scorer would refuse
-// (more than 4 files, or one over 256 KiB) is skipped with a console note
-// instead of producing a dossier rejected wholesale.
+// The run is idempotent: re-running overwrites the output cleanly, so a
+// grader never sees a stale dossier or leftovers from an earlier pass.
+// Screenshot copies are filtered through the scorer's caps first — a shot
+// the scorer would refuse (more than 4 files, or one over 256 KiB) is
+// skipped with a console note instead of producing a dossier rejected
+// wholesale.
 //
 // Order: copy game/ -> stage screenshots -> write dossier.json last, so a
 // partial run always leaves the newest dossier consistent with what was
@@ -30,15 +32,18 @@ const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 // Folder name inside MAKEFUN_OUTPUT_DIR the scorer expects screenshots under.
 const SCREENSHOT_DIR = 'screenshots';
 
+// Dossier file name written last into MAKEFUN_OUTPUT_DIR.
+const DOSSIER_NAME = 'dossier.json';
+
 // Caps the scorer enforces on the screenshot folder — stay inside them here
 // rather than failing there.
 const SCREENSHOT_CAPS = { max: 4, maxBytes: 262144 };
 
-// The same caps handed to the dossier builder. Only text_max_bytes shapes the
-// bytes; the rest only refuse, so passing them makes this program fail exactly
-// where the scorer would. game_max_files is 993, not 1000: the grader caps
-// /output itself at 1000 entries and game/ counts alongside screenshots/ (4
-// files plus their directory) and dossier.json.
+// The same caps handed to the dossier builder. Only text_max_bytes shapes
+// the bytes; the rest only refuse, so passing them makes this program fail
+// exactly where the scorer would. game_max_files is 993, not 1000: the
+// grader caps /output itself at 1000 entries and game/ counts alongside
+// screenshots/ (4 files plus their directory) and dossier.json.
 const GAME_CAPS = {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
@@ -74,5 +79,5 @@ if (existsSync(shotSrc)) {
 }
 
 // Dossier last, so its content always reflects the files copied above.
-writeFileSync(join(out, 'dossier.json'), buildDossier(out, GAME_CAPS));
-console.log('dossier written:', join(out, 'dossier.json'), '->', out);
+writeFileSync(join(out, DOSSIER_NAME), buildDossier(out, GAME_CAPS));
+console.log('dossier written:', join(out, DOSSIER_NAME), '->', out);

@@ -1,16 +1,19 @@
 // missions.js — the story chain: three chained jobs (car boost, cash run,
-// rival sweep). One marker mesh per Missions instance, reused across jobs so
-// the scene graph never grows with play time. The state machine only moves
-// forward; a failed run means re-starting the job, never rewinding steps.
-// Payouts ride a pending slot drained once per frame via collectReward, so a
-// reward can never double-fire out of a re-entered update branch. All spawn
-// points snap to city.roadLines so every objective is drive-able.
+// rival sweep). One marker mesh per Missions instance is reused across jobs,
+// so the scene graph never grows with play time. The state machine only
+// moves forward: a failed run means re-starting the job, never rewinding
+// steps. Payouts ride a pending slot drained once per frame through
+// collectReward, so a reward can never double-fire out of a re-entered
+// update branch. Every spawn point snaps to city.roadLines, which keeps all
+// objectives drive-able.
 
 import * as THREE from '../vendor/three.min.js';
 import { MISSIONS, CASH_RUN } from './config.js';
 import { HALF } from './city.js';
 
-// Objective marker: halo disc, ground ring, translucent light pillar.
+// Objective marker: light pillar, ground halo, ring — all translucent so the
+// street beneath stays readable. children[0] is the pillar; callers pulse its
+// opacity each frame, so keep that slot first.
 export function makeMarker(color = 0xffc94a) {
   const g = new THREE.Group();
   const pillar = new THREE.Mesh(
@@ -36,12 +39,17 @@ export function makeMarker(color = 0xffc94a) {
   return g;
 }
 
-// Rival count for the eliminate job (kept local; not a config knob).
+// Rivals in the eliminate job — a content number, not a tuning knob.
 const RIVALS = 3;
-// Reach radii: caches are generous, cars need precision, docks are wide.
+// Reach radii: caches are generous, car hand-offs need precision, docks wide.
 const RADIUS = Object.freeze({ cash: 3, car: 4.5, dock: 6 });
-// Cash-run caches and rivals both report progress with this denominator.
-const PROGRESS_TOTALS = { collect: CASH_RUN.caches, eliminate: RIVALS };
+// Deliveries drop at the garage dock by the map's east edge.
+const DOCK_X = 20;   // metres inside the boundary, i.e. HALF - DOCK_X
+const DOCK_Z = 8;
+// The dock point itself, resolved once.
+const DOCK = Object.freeze({ x: HALF - DOCK_X, z: DOCK_Z });
+// Progress denominators shared by caches and rivals in HUD copy.
+const PROGRESS_TOTALS = Object.freeze({ collect: CASH_RUN.caches, eliminate: RIVALS });
 
 export class Missions {
   constructor(scene, rng, city, sfx) {
@@ -49,7 +57,7 @@ export class Missions {
     this.rng = rng;
     this.city = city;
     this.sfx = sfx;
-    this.index = 0;            // position in MISSIONS
+    this.index = 0;            // position in the MISSIONS table
     this.state = 'idle';       // idle | active | complete | done-all
     this.marker = makeMarker();
     this.marker.visible = false;
@@ -104,26 +112,26 @@ export class Missions {
     this.message(`MISSION — ${m.name}: ${m.brief}`);
   }
 
+  // A random spot on a random road line, inside 80% of the city half-extent.
   randomStreetSpot() {
     const lane = this.city.roadLines[Math.floor(this.rng() * this.city.roadLines.length)];
     const along = (this.rng() - 0.5) * 2 * HALF * 0.8;
     return lane.axis === 'z' ? { x: lane.line, z: along } : { x: along, z: lane.line };
   }
 
-  // Marker follows the closest live target. Falls back to the first target when
-  // the player ref isn't bound yet (shot staging / smoke harness call start() early).
+  // The marker follows the closest live target. Falls back to the first
+  // target when the player ref isn't bound yet (shot staging and smoke
+  // harnesses call start() early).
   pointAtNearest() {
     const live = this.targets.filter((t) => !t.done);
     if (!live.length) return;
-    if (!this.playerRef) {
-      this.marker.position.set(live[0].x, 0, live[0].z);
-      return;
-    }
     let best = live[0];
-    let bd = Infinity;
-    for (const t of live) {
-      const d = (t.x - this.playerRef.x) ** 2 + (t.z - this.playerRef.z) ** 2;
-      if (d < bd) { bd = d; best = t; }
+    if (this.playerRef) {
+      let bestD = Infinity;
+      for (const t of live) {
+        const d = (t.x - this.playerRef.x) ** 2 + (t.z - this.playerRef.z) ** 2;
+        if (d < bestD) { bestD = d; best = t; }
+      }
     }
     this.marker.position.set(best.x, 0, best.z);
   }
@@ -138,7 +146,7 @@ export class Missions {
     if (this.state !== 'active') return;
     const m = this.current();
 
-    // Marker pulse drives the pillar's opacity; the halo/ring stay steady.
+    // The marker pulse drives the pillar's opacity; halo and ring stay steady.
     this.marker.children[0].material.opacity = 0.35 + Math.sin(world.time * 4) * 0.12;
 
     // Collect jobs are timed: a timeout fails the run outright.
@@ -166,7 +174,8 @@ export class Missions {
         this.message(`Cache collected (${this.collected}/${PROGRESS_TOTALS.collect})`, 2.5);
         this.pointAtNearest();
       } else if (t.kind === 'rival' && t.mesh && t.mesh.userData.dead) {
-        // Rivals die from main.js attack(); the mesh flag is the kill record.
+        // Rivals die through main.js's attack path; the mesh flag is the
+        // kill record this state machine reads.
         t.done = true;
         this.collected++;
         this.message(`Lookout down (${this.collected}/${PROGRESS_TOTALS.eliminate})`, 2.5);
@@ -174,8 +183,8 @@ export class Missions {
       } else if (t.kind === 'car' && player.inCar && d < RADIUS.car) {
         // Phase 2: deliver the boosted car to the dock by the map edge.
         t.done = true;
-        this.targets.push({ x: HALF - 20, z: 8, kind: 'dock', done: false });
-        this.marker.position.set(HALF - 20, 0, 8);
+        this.targets.push({ x: DOCK.x, z: DOCK.z, kind: 'dock', done: false });
+        this.marker.position.set(DOCK.x, 0, DOCK.z);
         this.message('Nice boost. Now drop it at the garage dock.', 4);
       } else if (t.kind === 'dock' && player.inCar && d < RADIUS.dock) {
         t.done = true;

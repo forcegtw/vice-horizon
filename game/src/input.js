@@ -1,42 +1,49 @@
-// input.js — keyboard state, pointer look, and action bindings.
-// Key state is a Set of event.code, so layout remaps (AZERTY etc.) stay
-// consistent; keydown repeats are ignored — holding a key relies on the Set
-// only. Actions are defined as an action->codes map so rebinding is
-// Input.rebind('enter', ['KeyF']) instead of an edit inside the loop.
-// preventDefault is scoped to exactly the keys the browser would scroll or
-// navigate with; game letters stay untouched so devtools typing still works.
-// Blur clears keys, taps and the mouse button, so refocus after alt-tab can
-// never resume with the weapon firing.
+// input.js — keyboard state, action bindings and pointer look.
+//
+// Design notes:
+//   * Key identity is event.code, never event.key, so bindings survive
+//     keyboard layouts (AZERTY, Dvorak) without per-user remapping.
+//   * keydown repeats are dropped. Holding a key is tracked by the held set;
+//     the once-per-press set exists purely for taps.
+//   * Actions map to arrays of codes and fire when ANY bound code is tapped,
+//     so a rebinding to two keys works from either of them.
+//   * preventDefault is scoped to exactly the keys the browser would scroll
+//     or navigate with; game letters stay untouched so devtools typing keeps
+//     working while the game is focused.
+//   * A blur wipes held keys, pending taps and the fire latch — alt-tabbing
+//     away mid-firefight can never come back with the trigger stuck down.
 
-// Keys the browser would scroll or navigate with; preventDefault applies only
-// to these so game letters stay untouched.
-const BROWSER_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'];
+// Keys the browser would otherwise act on (scroll, focus change, navigation).
+const BROWSER_KEYS = Object.freeze([
+  'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab',
+]);
+
+// Default action -> physical codes. rebind() swaps any entry at runtime.
+const DEFAULT_BINDINGS = Object.freeze({
+  forward: ['KeyW', 'ArrowUp'],
+  back: ['KeyS', 'ArrowDown'],
+  left: ['KeyA', 'ArrowLeft'],
+  right: ['KeyD', 'ArrowRight'],
+  enter: ['KeyF'],
+  weaponNext: ['KeyE'],
+  weaponPrev: ['KeyQ'],
+  job: ['KeyT'],
+  sideJob: ['KeyG'],
+  radio: ['KeyJ'],
+  radioMute: ['KeyK'],
+  map: ['KeyM'],
+});
 
 export class Input {
   constructor(canvas) {
-    this.keys = new Set();        // currently held codes
+    this.keys = new Set();          // codes currently held
     this.mouseDX = 0;
     this.mouseDY = 0;
     this.dragging = false;
-    this.firing = false;          // LMB held
-    this._pressedOnce = new Set(); // fresh presses not yet consumed
-
-    // Action bindings: an action matches ANY of its bound physical codes, so a
-    // rebinding to two keys still fires from either.
-    this.bindings = {
-      forward: ['KeyW', 'ArrowUp'],
-      back: ['KeyS', 'ArrowDown'],
-      left: ['KeyA', 'ArrowLeft'],
-      right: ['KeyD', 'ArrowRight'],
-      enter: ['KeyF'],
-      weaponNext: ['KeyE'],
-      weaponPrev: ['KeyQ'],
-      job: ['KeyT'],
-      sideJob: ['KeyG'],
-      radio: ['KeyJ'],
-      radioMute: ['KeyK'],
-      map: ['KeyM'],
-    };
+    this.firing = false;            // primary button held
+    this._pressedOnce = new Set();  // presses awaiting consumption
+    // Per-instance copy: rebinding one Input must never touch the defaults.
+    this.bindings = { ...DEFAULT_BINDINGS };
 
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -45,15 +52,10 @@ export class Input {
       if (BROWSER_KEYS.includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => {
-      this.keys.clear();
-      this._pressedOnce.clear();
-      this.firing = false;
-      this.dragging = false;
-    });
+    window.addEventListener('blur', () => this.release());
 
-    // Pointer drag = camera look. movementX/Y only accumulates while dragging,
-    // so a stray mouse move over the page never swings the camera.
+    // Drag-to-look: deltas accumulate only while the pointer is captured on
+    // the canvas, so a stray sweep across the page never swings the camera.
     canvas.addEventListener('pointerdown', (e) => {
       this.dragging = true;
       canvas.setPointerCapture(e.pointerId);
@@ -85,12 +87,12 @@ export class Input {
     if (action in this.bindings) this.bindings[action] = Object.freeze(codes.slice());
   }
 
-  // True the first frame any bound code for the action is freshly pressed.
+  // True the first frame any code bound to the action is freshly pressed.
   actionTapped(action) {
     return this.bindings[action].some((c) => this.tapped(c));
   }
 
-  // Movement axes for this frame: forward and strafe in [-1, 1].
+  // Movement axes for this frame: forward and strafe, each in [-1, 1].
   moveAxis() {
     let f = 0, s = 0;
     if (this.bindings.forward.some((c) => this.down(c))) f += 1;
@@ -108,7 +110,16 @@ export class Input {
     return d;
   }
 
-  // End-of-frame: consumed taps must not fire again next frame.
+  // Forget everything held or pending. Wired to the blur handler, and safe
+  // to call from anywhere that needs to force-clear the pad.
+  release() {
+    this.keys.clear();
+    this._pressedOnce.clear();
+    this.firing = false;
+    this.dragging = false;
+  }
+
+  // End-of-frame sweep: a tap consumed this frame must not re-fire next frame.
   endFrame() {
     this._pressedOnce.clear();
   }

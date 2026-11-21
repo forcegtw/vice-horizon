@@ -1,12 +1,14 @@
-// Node smoke test: import each new system module with minimal mocks and
-// exercise the update paths so TDZ / runtime errors surface without a browser.
-// Covers: Wanted (heat/stars/decay/clear), Weather (full storm cycle),
-// Radio (station cycling), Economy (money, upgrades, shop proximity, buys).
+// Node smoke test: pulls in the systems batch with duck-typed mocks and
+// drives every update path a browser would, so TDZ and runtime slips surface
+// here rather than mid-play. Wanted heat -> stars -> decay -> clear, a full
+// Weather storm cycle, Radio station cycling, and Economy money/upgrades/
+// shop proximity with an actual buy.
 
 import { Wanted } from '../game/src/wanted.js';
 import { Weather } from '../game/src/weather.js';
 import { Radio } from '../game/src/radio.js';
 import { Economy } from '../game/src/economy.js';
+import * as THREE from '../game/vendor/three.min.js';
 
 // Fixed rng stand-in: a deterministic LCG so the smoke run is reproducible.
 let rngVal = 0.4;
@@ -45,13 +47,13 @@ console.log('after decay (no cops):', state.wanted, 'heat', Math.round(w.heat));
 w.clear('escape');
 console.log('cleared:', state.wanted, w.heat);
 
-// ---- weather: fast-forward through a full change cycle ----
-import * as THREE from '../game/vendor/three.min.js';
+// ---- weather: fast-forward through a full change cycle (600 frames ≈ 60 s) ----
+const WEATHER_FRAMES = 600;
 const scene = mockScene();
 const city = mockCity();
 const rng = smokeRng;
 const weather = new Weather(scene, city, rng);
-for (let i = 0; i < 600; i++) weather.update(0.1, { x: 0, z: 0 });
+for (let i = 0; i < WEATHER_FRAMES; i++) weather.update(0.1, { x: 0, z: 0 });
 console.log('weather phase:', weather.name, 'intensity', weather.intensity.toFixed(2),
   'wetness', weather.wetness.toFixed(2), 'label', weather.label());
 console.log('road roughness after storm cycle:', city.road.material.roughness.toFixed(2));
