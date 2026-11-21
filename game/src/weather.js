@@ -1,35 +1,41 @@
-// Weather: dynamic coastal weather cycles over Vice Horizon — clear, overcast,
-// rain and storm. Rain is a recycled THREE.Points cloud that follows the player,
-// wet roads drop the asphalt roughness (lights smear instead of dying), lightning
-// is a spike on a dedicated flash light plus a brief ambient lift, and fog density
-// tracks storm intensity. Fully deterministic when driven by the seeded rng, so
-// ?shot= replays stay stable.
-// Design rule: this module never mutates lights it does not own — the flash light
-// and fog are created here and only touched here.
-// Fog density lerp uses a dt-scaled factor, so the storm haze settles at the same
-// rate at 30 fps and 144 fps.
-// Wetness lags intensity on purpose: the rain can stop while the streets still
-// glisten, and the dry-out rate below sets how long that afterglow lasts.
+// weather.js — coastal weather over Vice Horizon: a slow clear → overcast →
+// rain → storm cycle with a recycled rain cloud that tracks the player, wet
+// roads whose roughness/metalness drop so street lights smear instead of
+// dying, a two-bolt lightning flicker on a dedicated flash light, and storm
+// fog that thickens with intensity. Fully deterministic when driven by the
+// shared seeded rng, so ?shot= replays stay stable.
+//
+// Ownership rule: this module never mutates lights it does not own. The rain
+// points, flash light and fog swing are created here and only touched here;
+// scene.userData.weatherFlash publishes the flicker spike for anything that
+// wants to read it. Wetness deliberately lags intensity — the rain can stop
+// while streets still glisten, and the dry-out rate sets how long that
+// afterglow lasts. Fog density lerps with a dt-scaled factor, so the haze
+// settles at the same rate at 30 fps and 144 fps.
 
 import * as THREE from '../vendor/three.min.js';
 
 const RAIN_COUNT = 900;
-const CELL = 130;          // rain volume width/depth around the player
-const TOP = 42;            // rain volume height
+const RAIN_CELL = 130;        // rain volume width/depth around the player
+const RAIN_TOP = 42;          // and its height
+const RAIN_OPACITY = 0.6;     // rain material opacity per intensity unit
 const WET_ROUGHNESS = 0.18;
 const DRY_ROUGHNESS = 0.72;
 const WET_METALNESS = 0.5;
 const DRY_METALNESS = 0.18;
-const WET_GAIN = 0.22;     // wetness units per second while raining
-const DRY_LOSS = 0.045;    // wetness units per second while drying (~2x slower feel)
+const WET_GAIN = 0.22;        // wetness units per second while raining
+const DRY_LOSS = 0.045;       // wetness units per second while drying
+const WET_ASPHALT = 0x14161b; // soaked streets read darker
+const DRY_ASPHALT = 0x1e2026;
+const FOG_EASE = 1.2;         // per-second rate the storm haze settles in at
 
-// Weather state machine: each phase holds for a while, then transitions.
+// The phase machine: each state holds for a while, then transitions.
 // Intensity 0..1 drives rain fall speed, fog, wetness and lightning chance.
 const PHASES = [
-  { name: 'Clear',   intensity: 0.0, hold: 40 },
+  { name: 'Clear',    intensity: 0.0,  hold: 40 },
   { name: 'Overcast', intensity: 0.15, hold: 26 },
-  { name: 'Rain',    intensity: 0.6, hold: 34 },
-  { name: 'Storm',   intensity: 1.0, hold: 22 },
+  { name: 'Rain',     intensity: 0.6,  hold: 34 },
+  { name: 'Storm',    intensity: 1.0,  hold: 22 },
 ];
 
 export class Weather {
@@ -39,8 +45,7 @@ export class Weather {
     this.rng = rng;
     this.phase = 0;
     this.holdT = PHASES[0].hold;
-    // Smoothed intensity eases between phases so nothing pops.
-    this.intensity = 0;
+    this.intensity = 0;        // smoothed; eases between phases so nothing pops
     this.wetness = 0;          // lags intensity: roads dry slowly after rain
     this.lightningT = 3 + rng() * 6;
     this.flash = 0;            // 0..1 decaying spike
@@ -49,9 +54,9 @@ export class Weather {
     const pos = new Float32Array(RAIN_COUNT * 3);
     const vel = new Float32Array(RAIN_COUNT);
     for (let i = 0; i < RAIN_COUNT; i++) {
-      pos[i * 3] = (rng() - 0.5) * CELL;
-      pos[i * 3 + 1] = rng() * TOP;
-      pos[i * 3 + 2] = (rng() - 0.5) * CELL;
+      pos[i * 3] = (rng() - 0.5) * RAIN_CELL;
+      pos[i * 3 + 1] = rng() * RAIN_TOP;
+      pos[i * 3 + 2] = (rng() - 0.5) * RAIN_CELL;
       vel[i] = 26 + rng() * 18;
     }
     const geo = new THREE.BufferGeometry();
@@ -79,7 +84,7 @@ export class Weather {
     this.name = PHASES[0].name;
   }
 
-  // Advance the phase machine; called once per frame with player focus point.
+  // Advance the phase machine; called once per frame with the player focus point.
   update(dt, player) {
     this.holdT -= dt;
     if (this.holdT <= 0) {
@@ -89,10 +94,10 @@ export class Weather {
       this.name = p.name;
     }
     const target = PHASES[this.phase].intensity;
-    // Intensity eases fast into rain, slower out of it.
+    // Intensity eases fast into rain, slower back out of it.
     const ease = target > this.intensity ? 0.25 : 0.06;
     this.intensity += (target - this.intensity) * Math.min(1, dt * ease * 8);
-    // Wetness saturates while raining, dries at ~1/3 the rate.
+    // Wetness saturates while raining, dries at roughly a third of that rate.
     if (this.intensity > 0.4) this.wetness = Math.min(1, this.wetness + dt * WET_GAIN);
     else this.wetness = Math.max(0, this.wetness - dt * DRY_LOSS);
 
@@ -107,23 +112,23 @@ export class Weather {
     this.rain.visible = active;
     if (!active) return;
     const mat = this.rain.material;
-    mat.opacity = Math.min(0.55, this.intensity * 0.6);
+    mat.opacity = Math.min(0.55, this.intensity * RAIN_OPACITY);
     const posAttr = this.rain.geometry.attributes.position;
     const arr = posAttr.array;
     const fall = 1 + this.intensity * 0.8;
     for (let i = 0; i < RAIN_COUNT; i++) {
       let y = arr[i * 3 + 1] - this.rainVel[i] * fall * dt;
       if (y < 0) {
-        y = TOP;
+        y = RAIN_TOP;
         // Positions are local to the cloud: the whole Points object is moved
         // to the player, so recycling only needs a fresh spot inside the box.
-        arr[i * 3] = (this.rng() - 0.5) * CELL;
-        arr[i * 3 + 2] = (this.rng() - 0.5) * CELL;
+        arr[i * 3] = (this.rng() - 0.5) * RAIN_CELL;
+        arr[i * 3 + 2] = (this.rng() - 0.5) * RAIN_CELL;
       }
       arr[i * 3 + 1] = y;
     }
     posAttr.needsUpdate = true;
-    // Wind drift: the cloud leans with a slow sine so it does not look rigid.
+    // Wind drift: the cloud leans with a slow sine so it never looks rigid.
     this.rain.position.set(
       player.x + Math.sin(this.wetness * 7 + this.holdT) * 2 * this.intensity,
       0,
@@ -136,15 +141,14 @@ export class Weather {
     if (!road || !road.material) return;
     road.material.roughness = DRY_ROUGHNESS + (WET_ROUGHNESS - DRY_ROUGHNESS) * this.wetness;
     road.material.metalness = DRY_METALNESS + (WET_METALNESS - DRY_METALNESS) * this.wetness;
-    // Slightly darken asphalt when soaked: wet streets read darker.
-    road.material.color.setHex(this.wetness > 0.3 ? 0x14161b : 0x1e2026);
+    road.material.color.setHex(this.wetness > 0.3 ? WET_ASPHALT : DRY_ASPHALT);
   }
 
   _updateFog(dt) {
     if (!this.scene.fog) return;
     // Storm haze: up to ~1.8x baseline density, scaled by rain intensity.
-    const d = this.baseFogDensity * (1 + this.intensity * 0.8);
-    this.scene.fog.density += (d - this.scene.fog.density) * Math.min(1, dt * 1.2);
+    const target = this.baseFogDensity * (1 + this.intensity * 0.8);
+    this.scene.fog.density += (target - this.scene.fog.density) * Math.min(1, dt * FOG_EASE);
   }
 
   _updateLightning(dt) {
@@ -156,7 +160,7 @@ export class Weather {
       }
     }
     if (this.flash > 0) {
-      // Two-bolt flicker: sharp spike, quick dip, second spike, decay.
+      // Two-bolt flicker: sharp spike, quick dip, second spike, then decay.
       this.flash = Math.max(0, this.flash - dt * 3.2);
       const flick = this.flash > 0.6 ? this.flash : this.flash * 0.5;
       this.flashLight.intensity = flick * 14;
@@ -168,8 +172,9 @@ export class Weather {
     }
   }
 
-  // HUD summary string. Thresholds mirror the PHASES intensity ladder (storm 1.0,
-  // rain 0.6, overcast 0.15) so the label never disagrees with what's falling.
+  // HUD summary string. Thresholds mirror the PHASES intensity ladder
+  // (storm 1.0, rain 0.6, overcast 0.15) so the label never disagrees
+  // with what is actually falling from the sky.
   label() {
     if (this.intensity > 0.8) return '⛈ Storm';
     if (this.intensity > 0.3) return '🌧 Rain';

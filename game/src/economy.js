@@ -1,12 +1,21 @@
-// Economy: cash, gas-station shop stops, and vehicle upgrades that persist in
-// localStorage alongside the main save. Gas stations sit on three spread street corners
-// (canopy + pump props added here), and stopping inside one opens a shop menu.
-// Design rule: Economy owns money flow and its own storage key; mission
-// rewards still credit state.money directly, and the save merge happens here.
+// economy.js — cash, gas-station shop stops, and the permanent vehicle
+// upgrades that persist in localStorage alongside the main save. Three
+// canopies (plus pump props, built here) sit on spread street corners, and
+// pulling inside one — drive-through in a car, walk-up on foot — opens the
+// shop menu; B / N / V / C spend.
+//
+// Ownership: Economy owns money flow and its own storage key. Mission
+// rewards credit through credit() so persistence stays in one place, and
+// bind() merges the persisted ledger into the shared game state, where a
+// save already present wins over the mirror — mission progress and cash
+// never disagree on boot.
+
 import * as THREE from '../vendor/three.min.js';
 import { PLAYER, UPGRADE_HINTS } from './config.js';
 
 const ECO_KEY = 'vice-horizon-economy-v1';
+
+const SHOP_RADIUS = 8;   // metres from a canopy that counts as "at the station"
 
 const PRICES = {
   health: 150,       // full heal at a gas station
@@ -16,8 +25,8 @@ const PRICES = {
 };
 
 export const UPGRADES = {
-  speedBonus: 0.18,   // +18% top speed per speed upgrade
-  armorBonus: 50,     // extra armor capacity
+  speedBonus: 0.18,   // +18% top speed per engine tune
+  armorBonus: 50,     // extra armor capacity per plating kit
 };
 
 export class Economy {
@@ -25,16 +34,16 @@ export class Economy {
     this.scene = scene;
     this.city = city;
     this.rng = rng;
-    this._cash = 0;
+    this._cash = 0;        // money mirror until bind() hands us the real state
     this._state = null;
     this.upgrades = { speed: false, plating: false };
-    this.shops = [];       // {x, z, mesh, ring}
+    this.shops = [];       // {x, z, mesh}
     this.insideShop = null;
     this.menuOpen = false;
     this._menuDirty = false;   // set after a purchase so the offer refreshes in place
     this.msg = '';
     this.msgT = 0;
-    this.shopRadius = 8;   // metres from a canopy that counts as "at the station"
+    this.shopRadius = SHOP_RADIUS;
 
     this._load();
     this._buildStations();
@@ -48,8 +57,7 @@ export class Economy {
     else this._cash = v;
   }
 
-  // Bind to the shared game state. A save already in state wins over the
-  // economy mirror, so mission progress and cash never disagree on boot.
+  // Bind to the shared game state.
   bind(state) {
     this._state = state;
     if (!state.money && this._cash > 0) state.money = this._cash;
@@ -78,7 +86,7 @@ export class Economy {
     } catch { /* best-effort */ }
   }
 
-  // Gas stations: pick 3 spread street corners and plant a canopy + pump props.
+  // Gas stations: pick three spread street corners and plant a canopy + pumps.
   _buildStations() {
     const lines = this.city.roadLines;
     if (!lines || !lines.length) return;
@@ -104,10 +112,12 @@ export class Economy {
     canopy.castShadow = true;
     g.add(canopy);
     const postMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.7 });
-    for (const [px, pz] of [[-4, -3], [4, -3], [-4, 3], [4, 3]]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4.6, 0.4), postMat);
-      post.position.set(px, 2.3, pz);
-      g.add(post);
+    for (const px of [-4, 4]) {
+      for (const pz of [-3, 3]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4.6, 0.4), postMat);
+        post.position.set(px, 2.3, pz);
+        g.add(post);
+      }
     }
     // Pump: small box with a glowing band.
     const pump = new THREE.Mesh(
@@ -127,7 +137,8 @@ export class Economy {
     return { x, z, mesh: g };
   }
 
-  // Per-frame: detect shop proximity (drive-through in a car, walk-up on foot).
+  // Per-frame: detect shop proximity. Inside the radius opens (or refreshes)
+  // the menu; leaving it closes with a nudge toast.
   update(dt, player, inCar, playerCar, hud) {
     if (this.msgT > 0) this.msgT -= dt;
     const px = inCar ? playerCar.x : player.x;
@@ -139,26 +150,27 @@ export class Economy {
     }
     this.insideShop = near;
 
-    if (near && !this.menuOpen) {
+    if (!near) {
+      if (this.menuOpen) {
+        this.menuOpen = false;
+        hud.toast('Left the station.', 2);
+      }
+      return;
+    }
+    if (!this.menuOpen || this._menuDirty) {
+      // Refresh only after a purchase too: the bought line drops out of the
+      // menu at once instead of lingering until the player leaves and returns.
       this.menuOpen = true;
       this._menuDirty = false;
       hud.toast(this._menuText(), 30);
-    } else if (near && this.menuOpen && this._menuDirty) {
-      // Refresh the offer only after a purchase: the bought line drops out of the
-      // menu at once instead of lingering until the player leaves and returns.
-      this._menuDirty = false;
-      hud.toast(this._menuText(), 30);
-    } else if (!near && this.menuOpen) {
-      this.menuOpen = false;
-      hud.toast('Left the station.', 2);
     }
   }
 
   _menuText() {
-    const u = this.upgrades;
-    return 'GAS STATION — B buy health $150 · N buy armor $400' +
-      (u.speed ? '' : ' · V engine tune $2500') +
-      (u.plating ? '' : ' · C plating $1800');
+    const offers = ['B buy health $150', 'N buy armor $400'];
+    if (!this.upgrades.speed) offers.push('V engine tune $2500');
+    if (!this.upgrades.plating) offers.push('C plating $1800');
+    return 'GAS STATION — ' + offers.join(' · ');
   }
 
   // Shop hotkeys, called from the main loop when input.tapped fires.
@@ -184,26 +196,17 @@ export class Economy {
         break;
       case 'armor':
         ok = spend(PRICES.armor);
-        if (ok) {
-          player.armor = PLAYER.maxArmor + (this.upgrades.plating ? UPGRADES.armorBonus : 0);
-          hud.toast('Armor fitted.', 2);
-        }
+        if (ok) { player.armor = this.armorCap(); hud.toast('Armor fitted.', 2); }
         break;
       case 'speed':
         if (this.upgrades.speed) { hud.toast('Engine already tuned.', 2); return true; }
         ok = spend(PRICES.speed);
-        if (ok) {
-          this.upgrades.speed = true;
-          hud.toast(UPGRADE_HINTS.speed, 3);
-        }
+        if (ok) { this.upgrades.speed = true; hud.toast(UPGRADE_HINTS.speed, 3); }
         break;
       case 'plating':
         if (this.upgrades.plating) { hud.toast('Already plated.', 2); return true; }
         ok = spend(PRICES.plating);
-        if (ok) {
-          this.upgrades.plating = true;
-          hud.toast(UPGRADE_HINTS.plating, 3);
-        }
+        if (ok) { this.upgrades.plating = true; hud.toast(UPGRADE_HINTS.plating, 3); }
         break;
       default:
         return false;
@@ -219,8 +222,8 @@ export class Economy {
   armorCap() { return PLAYER.maxArmor + (this.upgrades.plating ? UPGRADES.armorBonus : 0); }
 
   // Mission rewards / pickups credit here so persistence stays in one place.
-  // Clamp every credited amount so a negative or non-finite reward from a future
-  // mission table can't corrupt the ledger; zero/negative payouts are no-ops.
+  // Clamp every credited amount: a negative or non-finite payout from a future
+  // mission table must not corrupt the ledger; zero/negative payouts no-op.
   credit(amount, hud) {
     if (!Number.isFinite(amount) || amount <= 0) return;
     this.money += amount;

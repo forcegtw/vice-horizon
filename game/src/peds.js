@@ -1,23 +1,40 @@
-// Pedestrians: capsule-adjacent low-poly walkers who stroll the sidewalks and flee
-// gunfire. Doubles as the rig for rival NPCs in the eliminate mission.
-// Skin and shirt palettes are per-ped random, giving the streets visual variety cheaply.
-// Ped update cost scales with count; flee state is the hot path, keep its checks cheap.
-// Despawn far peds before spawning new ones to keep the cap honest. Dead peds keep
-// their heading when they fall (no snap to face their killer) and recycle through spawn().
-// Flee radius 26 / calm radius 40 are the two constants that shape crowd panic:
-// raising the calm radius makes streets stay scared longer after gunfire stops.
+// peds.js — the street crowd. Low-poly walkers cruising the sidewalks who
+// panic at gunfire, get knocked flat, and recycle through spawn(). The class
+// doubles as the rig for rival NPCs in the eliminate mission, so killNear()
+// is also the mission kill path.
+//
+// Ownership split: peds.js owns the ped record and the walk/flee/dead state
+// machine; peds2.js layers richer animation and fear on top and must never
+// fight this class over p.state. Outfits come from models.pedMesh, which
+// draws from the shared seeded rng — the draw count per ped is part of the
+// replay contract, so spawn() keeps its exact draw order.
+//
+// Two radii shape crowd panic: gunfire within ALARM_RADIUS scares a ped, and
+// it keeps sprinting until it is CALM_RADIUS from the player. Raising the
+// calm radius keeps streets scared longer after the shooting stops. Dead
+// peds hold their heading when they fall (no snap toward the killer) and
+// recycle in place, so the ped cap and draw-call count stay honest.
 
-import * as THREE from '../vendor/three.min.js';
 import { TRAFFIC, PLAYER, WORLD } from './config.js';
 import { pedMesh } from './models.js';
 import { resolveCircle } from './vehicles.js';
 import { HALF } from './city.js';
 
-const SKIN = [0xe0b48c, 0xc98e5e, 0x8a5a3a, 0x6e4428];
-const SHIRT = [0xd65f5f, 0x5f7fd6, 0x63b46a, 0xd6c45f, 0xb45fd6, 0x5fb8b4, 0xdddddd];
-const ALARM_RADIUS = 26;   // gunfire scares peds within this range
-const CALM_RADIUS = 40;    // they settle back once this far from the panic source
-const FLEE_SPEED = 5.2;    // sprint of a scared ped; must beat PANIC_SPRINT chatter
+// Gunfire scares peds within this range; they settle once this far from the panic source.
+const ALARM_RADIUS = 26;
+const CALM_RADIUS = 40;
+// Sprint of a scared ped. peds2's PANIC_SPRINT must stay above this or
+// sprinters visibly slow down at the moment they should be fastest.
+const FLEE_SPEED = 5.2;
+// Base strut: stride cycles per second and swing amplitude.
+const STRUT_RATE = 3.2;
+const STRUT_SWING = 0.62;
+// Sidewalk clearance: peds walk this far off the road centre line.
+const CURB_OFFSET = WORLD.roadWidth / 2 + WORLD.sidewalk * 0.6;
+// Past this distance from the centre a ped has wandered out of the city and is bounced back.
+const CITY_MARGIN = HALF + 20;
+// A downed ped stays on the ground this many seconds before recycling.
+const DEAD_SECONDS = 9;
 
 export class Peds {
   constructor(scene, city, rng) {
@@ -26,17 +43,20 @@ export class Peds {
     for (let i = 0; i < TRAFFIC.pedCount; i++) {
       const mesh = pedMesh(rng);
       scene.add(mesh);
-      const p = this.spawn(rng, { mesh });
-      this.peds.push(p);
+      this.peds.push(this.spawn(rng, { mesh }));
     }
   }
 
+  // (Re)place one ped on a random sidewalk. Every rng draw here is part of the
+  // seeded replay contract: lane, stretch along it, curb side, heading, pace
+  // and gait phase, in that order.
   spawn(rng, p) {
-    const lane = this.city.roadLines[Math.floor(rng() * this.city.roadLines.length)];
+    const lines = this.city.roadLines;
+    const lane = lines[Math.floor(rng() * lines.length)];
     const along = (rng() - 0.5) * 2 * HALF;
-    const side = (rng() < 0.5 ? 1 : -1) * (WORLD.roadWidth / 2 + WORLD.sidewalk * 0.6);
-    p.x = lane.axis === 'z' ? lane.line + side : along;
-    p.z = lane.axis === 'z' ? along : lane.line + side;
+    const curb = (rng() < 0.5 ? 1 : -1) * CURB_OFFSET;
+    p.x = lane.axis === 'z' ? lane.line + curb : along;
+    p.z = lane.axis === 'z' ? along : lane.line + curb;
     p.heading = rng() * Math.PI * 2;
     p.speed = TRAFFIC.pedSpeed * (0.7 + rng() * 0.6);
     p.phase = rng() * Math.PI * 2;
@@ -49,76 +69,93 @@ export class Peds {
 
   update(dt, rng, playerPos, solids, alarmPos) {
     for (const p of this.peds) {
-      if (p.state === 'dead') {
-        p.deadT -= dt;
-        // Face-plant: keep the pre-death heading, just rotate down onto the ground.
-        p.mesh.rotation.x = Math.PI / 2;
-        p.mesh.position.y = 0.2;
-        if (p.deadT <= 0) {
-          p.mesh.rotation.x = 0;
-          this.spawn(rng, p);
-        }
-        continue;
-      }
-
-      // Flee if gunfire alarmed nearby or the wanted player is right on top of them.
-      if (alarmPos) {
-        const d = Math.hypot(alarmPos.x - p.x, alarmPos.z - p.z);
-        if (d < ALARM_RADIUS) p.state = 'flee';
-      }
-      if (p.state === 'flee') {
-        const d = Math.hypot(playerPos.x - p.x, playerPos.z - p.z);
-        if (d > CALM_RADIUS) p.state = 'walk';
-        p.heading = Math.atan2(p.x - playerPos.x, p.z - playerPos.z);
-        p.speed = FLEE_SPEED;
-      } else {
-        p.speed = TRAFFIC.pedSpeed;
-        // Occasional wander turn.
-        if (rng() < dt * 0.5) p.heading += (rng() - 0.5) * 1.6;
-      }
-
-      const nx = p.x + Math.sin(p.heading) * p.speed * dt;
-      const nz = p.z + Math.cos(p.heading) * p.speed * dt;
-      const hit = resolveCircle(nx, nz, PLAYER.radius, solids);
-      if (hit.blocked) {
-        p.heading += Math.PI / 2 + rng();
-      } else if (Math.abs(hit.x) < HALF + 20 && Math.abs(hit.z) < HALF + 20) {
-        p.x = hit.x; p.z = hit.z;
-      } else {
-        p.heading += Math.PI; // bounce back into the city
-      }
-
-      // Strut animation.
-      p.phase += dt * p.speed * 3.2;
-      const limbs = p.mesh.userData.limbs;
-      const swing = Math.sin(p.phase) * 0.62;
-      limbs[0].rotation.x = swing;
-      limbs[1].rotation.x = -swing;
-      limbs[2].rotation.x = -swing * 0.8;
-      limbs[3].rotation.x = swing * 0.8;
-      // Vertical bob + subtle forward lean while moving; settles when idle-flee.
-      p.mesh.position.y = Math.abs(Math.sin(p.phase)) * 0.05;
-      p.mesh.rotation.x = p.state === 'flee' ? 0.14 : 0.05;
-
-      p.mesh.position.set(p.x, 0, p.z);
-      p.mesh.rotation.y = p.heading;
+      if (p.state === 'dead') { this._stepDead(p, dt, rng); continue; }
+      this._stepAlive(p, dt, rng, playerPos, solids, alarmPos);
+      this._pose(p, dt);
     }
   }
 
-  // Kill the nearest ped within range; returns the ped or null. The dead branch in
-  // update() poses the fall; this only flips state, so a missed mesh never crashes.
+  // Dead peds simply tip over onto the ground and wait out the timer, then
+  // recycle through spawn() with a clean record.
+  _stepDead(p, dt, rng) {
+    p.deadT -= dt;
+    p.mesh.rotation.x = Math.PI / 2;
+    p.mesh.position.y = 0.2;
+    if (p.deadT <= 0) {
+      p.mesh.rotation.x = 0;
+      this.spawn(rng, p);
+    }
+  }
+
+  // Per-ped brains and movement for the living. The flee branch never draws
+  // from rng (deterministic sprint away from the player); only wandering and
+  // obstacle turns spend draws.
+  _stepAlive(p, dt, rng, playerPos, solids, alarmPos) {
+    // Gunfire nearby flips the panic state on. The wanted player standing
+    // close is handled by peds2, which hands over into this same flee branch.
+    if (alarmPos && Math.hypot(alarmPos.x - p.x, alarmPos.z - p.z) < ALARM_RADIUS) {
+      p.state = 'flee';
+    }
+
+    if (p.state === 'flee') {
+      // Sprint straight away from the player; settle back once well clear.
+      // A ped calming down this frame still flees this frame — the else is
+      // skipped — so the transition never teleports the stride.
+      if (Math.hypot(playerPos.x - p.x, playerPos.z - p.z) > CALM_RADIUS) p.state = 'walk';
+      p.heading = Math.atan2(p.x - playerPos.x, p.z - playerPos.z);
+      p.speed = FLEE_SPEED;
+    } else {
+      p.speed = TRAFFIC.pedSpeed;
+      // Occasional wander turn.
+      if (rng() < dt * 0.5) p.heading += (rng() - 0.5) * 1.6;
+    }
+
+    const nx = p.x + Math.sin(p.heading) * p.speed * dt;
+    const nz = p.z + Math.cos(p.heading) * p.speed * dt;
+    const hit = resolveCircle(nx, nz, PLAYER.radius, solids);
+    if (hit.blocked) {
+      p.heading += Math.PI / 2 + rng();   // shuffle around the obstacle
+    } else if (Math.abs(hit.x) < CITY_MARGIN && Math.abs(hit.z) < CITY_MARGIN) {
+      p.x = hit.x;
+      p.z = hit.z;
+    } else {
+      p.heading += Math.PI;               // turned around at the city edge
+    }
+  }
+
+  // Strut pose for the living: alternating limb swings with counter-swinging
+  // arms, plus a forward lean that deepens while fleeing. Runs after the
+  // step so the pose matches this frame's motion; peds2 re-poses on top.
+  _pose(p, dt) {
+    p.phase += dt * p.speed * STRUT_RATE;
+    const limbs = p.mesh.userData.limbs;
+    const swing = Math.sin(p.phase) * STRUT_SWING;
+    limbs[0].rotation.x = swing;
+    limbs[1].rotation.x = -swing;
+    limbs[2].rotation.x = -swing * 0.8;
+    limbs[3].rotation.x = swing * 0.8;
+    p.mesh.rotation.x = p.state === 'flee' ? 0.14 : 0.05;
+    p.mesh.position.set(p.x, 0, p.z);
+    p.mesh.rotation.y = p.heading;
+  }
+
+  // Kill the nearest living ped within range; returns the ped or null. This
+  // only flips state — the dead branch poses the fall — so a missed mesh can
+  // never crash. fearLevel belongs to the peds2 layer; resetting it here keeps
+  // the recycled ped from panicking on respawn.
   killNear(x, z, range) {
-    let best = null, bd = range * range;
+    let best = null;
+    let bestD2 = range * range;
     for (const p of this.peds) {
       if (p.state === 'dead') continue;
       const d2 = (p.x - x) ** 2 + (p.z - z) ** 2;
-      if (d2 < bd) { bd = d2; best = p; }
+      if (d2 < bestD2) { bestD2 = d2; best = p; }
     }
     if (best) {
       best.state = 'dead';
-      best.deadT = 9;
-      best.speed = 0; // the fall animation owns the body from here
-      best.fearLevel = 0; // layer state reset so the recycled ped doesn't panic on respawn
+      best.deadT = DEAD_SECONDS;
+      best.speed = 0;      // the fall animation owns the body from here
+      best.fearLevel = 0;
     }
     return best;
   }

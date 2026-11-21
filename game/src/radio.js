@@ -1,16 +1,22 @@
-// Radio: in-car radio for Vice Horizon. Procedural chiptune stations built on
-// WebAudio — every station is a tiny sequencer (bass line, lead arp, drums)
-// with its own scale, tempo and waveform, so switching stations audibly changes
-// the mood without any audio files. The radio only plays while the player is
-// in a car; J / Shift-J cycle stations, K mutes, and the HUD gets the station
-// name via Radio.label(). All scheduling runs on the shared Sfx context.
-// Design rule: Radio owns its oscillators and never writes to the DOM — the
-// HUD readout is dirty-checked in hud.js.
-// start() honors the mute toggle so unpausing a muted radio cannot resurrect a
-// silent scheduler, and stop() resets the lookahead clock so a long pause
-// doesn't make the next resume schedule a burst of overdue steps.
-// Scheduling caps: LOOKAHEAD bounds how far ahead steps are queued, the 16-step
-// guard bounds catch-up after a throttled tab, so neither can spike the audio thread.
+// radio.js — the in-car dial for Vice Horizon. Four stations: three procedural
+// chiptune sequencers (bass line, lead arp, drums) plus RADIO OFF, each with
+// its own scale, tempo and waveforms, so flipping stations audibly changes
+// the mood without shipping a single audio file. The radio only plays while
+// the player is in a car; J / Shift-J cycle stations, K mutes, and the HUD
+// polls Radio.label() for the readout. All scheduling runs on the shared Sfx
+// audio context and clock.
+//
+// Rules this module keeps:
+// - Radio owns its oscillators and a private bus gain, and never writes to
+//   the DOM (hud.js dirty-checks the label) or to Sfx.musicGain — the ambient
+//   loop keeps its own bus. The 0.12 bus level keeps the synth under the SFX
+//   layer; the engine tone lives on master.
+// - start() honours the mute toggle, so unpausing a muted radio cannot
+//   resurrect a silent scheduler, and stop() resets the lookahead clock so a
+//   long pause never resumes into a burst of overdue steps.
+// - LOOKAHEAD bounds how far ahead steps are queued and the catch-up cap
+//   bounds how many overdue steps one scheduler tick may queue, so neither a
+//   slow frame nor a throttled background tab can spike the audio thread.
 
 const STATIONS = [
   {
@@ -37,9 +43,11 @@ const STATIONS = [
   },
 ];
 
-const LOOKAHEAD_MS = 90;   // schedule this far ahead
-const TICK_MS = 40;        // scheduler interval
-const MAX_CATCHUP_STEPS = 16; // hard cap on overdue steps queued in one scheduler tick
+const LOOKAHEAD_MS = 90;         // schedule this far ahead
+const TICK_MS = 40;              // scheduler interval
+const MAX_CATCHUP_STEPS = 16;    // hard cap on overdue steps queued per tick
+const EIGHT_BEAT = 8;            // patterns are eight steps long
+const BUS_GAIN = 0.12;           // radio bus level: synth ducks under the SFX layer
 
 export class Radio {
   constructor(sfx) {
@@ -53,13 +61,11 @@ export class Radio {
     this.gain = null;            // radio bus, lazily created off sfx.ctx
   }
 
-  // Radio bus: one gain node per radio so station music ducks under sirens
-  // and never routes through Sfx.musicGain (the ambient loop keeps its own).
-  // 0.12 keeps the synth under the SFX layer; the engine tone lives on master.
+  // Radio bus: one gain node per radio so station music ducks under sirens.
   _ensureBus() {
     if (!this.sfx.ctx || this.gain) return;
     this.gain = this.sfx.ctx.createGain();
-    this.gain.gain.value = 0.12;
+    this.gain.gain.value = BUS_GAIN;
     this.gain.connect(this.sfx.master);
   }
 
@@ -80,7 +86,7 @@ export class Radio {
   start() {
     if (!this.sfx.ctx || this.timer) return;
     if (this.station().id === 'off') return;
-    if (!this.enabled) return; // muted: a resume must not start a silent scheduler
+    if (!this.enabled) return;   // muted: a resume must not start a silent scheduler
     this._ensureBus();
     this.nextTime = this.sfx.ctx.currentTime + 0.05;
     this.step = 0;
@@ -89,22 +95,17 @@ export class Radio {
 
   stop() {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    // Drop any lookahead that accumulated while stopped, so the next start()
+    // Drop any lookahead accumulated while stopped, so the next start()
     // resumes at "now" instead of dumping a burst of overdue steps.
     this.nextTime = 0;
   }
 
-  // Cycle to the next station; restarts the sequencer if it changes.
-  next() {
-    this.stationIndex = (this.stationIndex + 1) % STATIONS.length;
-    this.step = 0;
-    this.stop();
-    if (this.active && this.enabled && this.station().id !== 'off') this.start();
-    return this.station().name;
-  }
-
-  prev() {
-    this.stationIndex = (this.stationIndex + STATIONS.length - 1) % STATIONS.length;
+  // Cycle stations; restarts the sequencer only when the new station plays.
+  next() { return this._tune(1); }
+  prev() { return this._tune(-1); }
+  _tune(dir) {
+    const count = STATIONS.length;
+    this.stationIndex = (this.stationIndex + dir + count) % count;
     this.step = 0;
     this.stop();
     if (this.active && this.enabled && this.station().id !== 'off') this.start();
@@ -119,20 +120,21 @@ export class Radio {
   }
 
   _schedule() {
-    if (!this.sfx.ctx || !this.gain) return;
-    if (this.sfx.ctx.state !== 'running') return;
+    const ctx = this.sfx.ctx;
+    if (!ctx || !this.gain) return;
+    if (ctx.state !== 'running') return;
     const st = this.station();
     if (st.id === 'off') { this.stop(); return; }
     const stepDur = 60 / st.bpm / 2;
-    // Hard cap on catch-up steps: a throttled background tab can fall far behind,
-    // and scheduling hundreds of overdue oscillators at once spikes the audio thread.
+    // Catch-up cap: a throttled background tab can fall far behind, and
+    // queueing hundreds of overdue oscillators at once spikes the audio thread.
     let guard = 0;
-    while (this.nextTime < this.sfx.ctx.currentTime + LOOKAHEAD_MS / 1000 && guard++ < MAX_CATCHUP_STEPS) {
-      const s = this.step % 8;
+    while (this.nextTime < ctx.currentTime + LOOKAHEAD_MS / 1000 && guard++ < MAX_CATCHUP_STEPS) {
+      const s = this.step % EIGHT_BEAT;
       const t = this.nextTime;
       // Bass: root-driven pattern, gated envelope on the radio bus.
-      this._blip(st.root * Math.pow(2, st.scale[st.pattern[s] % st.scale.length] / 12),
-        stepDur * 1.7, st.wave, 0.5, t);
+      const bassDeg = st.scale[st.pattern[s] % st.scale.length];
+      this._blip(st.root * Math.pow(2, bassDeg / 12), stepDur * 1.7, st.wave, 0.5, t);
       // Lead arp one octave up, quieter, skipping every 3rd step for syncopation.
       if (s % 3 !== 2) {
         const li = (this.step * 5) % st.scale.length;
@@ -147,55 +149,67 @@ export class Radio {
   }
 
   _blip(freq, dur, type, vol, when) {
-    if (!this.sfx.ctx || !this.gain) return;
-    const o = this.sfx.ctx.createOscillator();
-    const g = this.sfx.ctx.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, when);
-    g.gain.setValueAtTime(0, when);
-    g.gain.linearRampToValueAtTime(vol, when + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, when + dur);
-    o.connect(g); g.connect(this.gain);
-    o.start(when); o.stop(when + dur + 0.02);
+    const ctx = this.sfx.ctx;
+    if (!ctx || !this.gain) return;
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, when);
+    env.gain.setValueAtTime(0, when);
+    env.gain.linearRampToValueAtTime(vol, when + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.001, when + dur);
+    osc.connect(env);
+    env.connect(this.gain);
+    osc.start(when);
+    osc.stop(when + dur + 0.02);
   }
 
   _hat(when, stepDur) {
-    if (!this.sfx.ctx) return;
-    const len = Math.floor(this.sfx.ctx.sampleRate * 0.04);
-    const buf = this.sfx.ctx.createBuffer(1, len, this.sfx.ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const src = this.sfx.ctx.createBufferSource();
+    const ctx = this.sfx.ctx;
+    if (!ctx) return;
+    const len = Math.floor(ctx.sampleRate * 0.04);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource();
     src.buffer = buf;
-    const f = this.sfx.ctx.createBiquadFilter();
-    f.type = 'highpass'; f.frequency.value = 6000;
-    const g = this.sfx.ctx.createGain(); g.gain.value = 0.35;
-    src.connect(f); f.connect(g); g.connect(this.gain);
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 6000;
+    const out = ctx.createGain();
+    out.gain.value = 0.35;
+    src.connect(hp);
+    hp.connect(out);
+    out.connect(this.gain);
     src.start(when);
   }
 
   _kick(when) {
-    if (!this.sfx.ctx) return;
-    const o = this.sfx.ctx.createOscillator();
-    const g = this.sfx.ctx.createGain();
-    // Pitch-dropping sine: the classic 140 Hz -> 45 Hz thump.
-    o.type = 'sine';
-    o.frequency.setValueAtTime(140, when);
-    o.frequency.exponentialRampToValueAtTime(45, when + 0.12);
-    g.gain.setValueAtTime(0.5, when);
-    g.gain.exponentialRampToValueAtTime(0.001, when + 0.14);
-    o.connect(g); g.connect(this.gain);
-    o.start(when); o.stop(when + 0.16);
+    const ctx = this.sfx.ctx;
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    // Pitch-dropping sine: the classic 140 Hz → 45 Hz thump.
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(140, when);
+    osc.frequency.exponentialRampToValueAtTime(45, when + 0.12);
+    env.gain.setValueAtTime(0.5, when);
+    env.gain.exponentialRampToValueAtTime(0.001, when + 0.14);
+    osc.connect(env);
+    env.connect(this.gain);
+    osc.start(when);
+    osc.stop(when + 0.16);
   }
 
-  // Station jingle: quick arpeggio sting played when a station is selected.
+  // Station jingle: a quick ascending arpeggio sting when a station is picked.
   jingle() {
     const st = this.station();
     if (st.id === 'off' || !this.sfx.ctx) return;
     const t0 = this.sfx.ctx.currentTime;
-    st.scale.slice(0, 4).forEach((deg, i) => {
+    for (let i = 0; i < 4; i++) {
+      const deg = st.scale[i];
       this._blip(st.root * 8 * Math.pow(2, deg / 12), 0.1, 'square', 0.2, t0 + i * 0.07);
-    });
+    }
   }
 
   // HUD readout.
