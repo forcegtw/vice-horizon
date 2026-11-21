@@ -1,24 +1,24 @@
 // input.js — keyboard state, action bindings and pointer look.
 //
-// Design notes:
-//   * Key identity is event.code, never event.key, so bindings survive
-//     keyboard layouts (AZERTY, Dvorak) without per-user remapping.
-//   * keydown repeats are dropped. Holding a key is tracked by the held set;
-//     the once-per-press set exists purely for taps.
-//   * Actions map to arrays of codes and fire when ANY bound code is tapped,
-//     so a rebinding to two keys works from either of them.
-//   * preventDefault is scoped to exactly the keys the browser would scroll
-//     or navigate with; game letters stay untouched so devtools typing keeps
-//     working while the game is focused.
-//   * A blur wipes held keys, pending taps and the fire latch — alt-tabbing
-//     away mid-firefight can never come back with the trigger stuck down.
+// Contracts this module keeps:
+//   * Identity is event.code, never event.key — bindings must survive
+//     non-QWERTY layouts without a per-user remap step.
+//   * Auto-repeat keydowns are ignored. Held keys live in one Set; the
+//     pending-tap Set exists only so a press can be answered exactly once.
+//   * An action may bind several codes and fires when ANY of them taps, so
+//     rebinding to a pair works from either half.
+//   * preventDefault touches only the keys a browser would scroll, focus or
+//     navigate with. Game letters stay untouched so typing in devtools keeps
+//     working while the page has focus.
+//   * A window blur drops everything held, pending and latched — alt-tabbing
+//     out of a firefight can never come back with the trigger stuck down.
 
 // Keys the browser would otherwise act on (scroll, focus change, navigation).
 const BROWSER_KEYS = Object.freeze([
   'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab',
 ]);
 
-// Default action -> physical codes. rebind() swaps any entry at runtime.
+// Action -> physical codes. rebind() swaps any entry at runtime.
 const DEFAULT_BINDINGS = Object.freeze({
   forward: ['KeyW', 'ArrowUp'],
   back: ['KeyS', 'ArrowDown'],
@@ -34,6 +34,9 @@ const DEFAULT_BINDINGS = Object.freeze({
   map: ['KeyM'],
 });
 
+// Mouse button that counts as the primary fire input.
+const FIRE_BUTTON = 0;
+
 export class Input {
   constructor(canvas) {
     this.keys = new Set();          // codes currently held
@@ -45,6 +48,12 @@ export class Input {
     // Per-instance copy: rebinding one Input must never touch the defaults.
     this.bindings = { ...DEFAULT_BINDINGS };
 
+    this._bindKeys();
+    this._bindPointerLook(canvas);
+    this._bindMouseFire();
+  }
+
+  _bindKeys() {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.keys.add(e.code);
@@ -53,9 +62,11 @@ export class Input {
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.release());
+  }
 
-    // Drag-to-look: deltas accumulate only while the pointer is captured on
-    // the canvas, so a stray sweep across the page never swings the camera.
+  // Drag-to-look: deltas accumulate only while the pointer is captured on
+  // the canvas, so a stray sweep across the page never swings the camera.
+  _bindPointerLook(canvas) {
     canvas.addEventListener('pointerdown', (e) => {
       this.dragging = true;
       canvas.setPointerCapture(e.pointerId);
@@ -66,9 +77,12 @@ export class Input {
       this.mouseDX += e.movementX || 0;
       this.mouseDY += e.movementY || 0;
     });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  _bindMouseFire() {
     window.addEventListener('mousedown', (e) => { if (e.button === 0) this.firing = true; });
     window.addEventListener('mouseup', (e) => { if (e.button === 0) this.firing = false; });
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   down(code) { return this.keys.has(code); }

@@ -20,6 +20,8 @@ const BORDER = 20;
 const VIEW_SPAN = HALF * 2 + BORDER * 2;
 // Seconds between redraws while visible (~10 Hz).
 const REDRAW_INTERVAL = 0.1;
+// Metres the waterfront accent sits off the west boundary.
+const WATERFRONT_OFFSET = 8;
 
 const LABEL_ON = 'M — hide map';
 const LABEL_OFF = 'M — show map';
@@ -89,7 +91,7 @@ export class Minimap {
     g.strokeStyle = '#2c5f8a';
     g.lineWidth = 3;
     g.beginPath();
-    g.moveTo(to(-HALF - 8), to(-HALF)); g.lineTo(to(-HALF - 8), to(HALF));
+    g.moveTo(to(-HALF - WATERFRONT_OFFSET), to(-HALF)); g.lineTo(to(-HALF - WATERFRONT_OFFSET), to(HALF));
     g.stroke();
   }
 

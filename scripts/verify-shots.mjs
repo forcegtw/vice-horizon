@@ -16,6 +16,9 @@ const MIME = Object.freeze({ '.html': 'text/html', '.js': 'text/javascript', '.j
 const NOISE = /WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback|Deprecation|Fontconfig|dbus|DBus/i;
 const root = join(process.cwd(), 'game');
 const VERIFY_PORT = 8793;
+// Fixed capture window and settle timeout, matching check-headless.
+const WINDOW_SIZE = '1280,720';
+const CAPTURE_TIMEOUT = '6000';
 const srv = createServer((req, res) => {
   const rel = req.url.split('?')[0];
   const p = join(root, rel === '/' ? 'index.html' : rel);
@@ -41,8 +44,8 @@ for (const shot of shots) {
       '--disable-dev-shm-usage',
       '--enable-unsafe-swiftshader',
       '--enable-logging=stderr', '--v=0', '--hide-scrollbars',
-      `--screenshot=${out}`, '--window-size=1280,720',
-      '--timeout=6000',
+      `--screenshot=${out}`, `--window-size=${WINDOW_SIZE}`,
+      `--timeout=${CAPTURE_TIMEOUT}`,
       `http://127.0.0.1:${VERIFY_PORT}/index.html?shot=${shot}&seed=1`,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr.on('data', (d) => {

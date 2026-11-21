@@ -371,6 +371,9 @@ function readIndexHtml(gameDir: string, tree: GameTree): Uint8Array {
 /** Tags whose src names a file the page loads. */
 const RESOURCE_TAGS = ['img', 'source', 'video', 'audio', 'iframe'] as const;
 
+/** Length of the closing script tag, used to step past inline script bodies. */
+const SCRIPT_CLOSE_LEN = '</script>'.length;
+
 /** Where a tag ends, honouring quoted attribute values; -1 when it never does. */
 function endOfTag(html: string, from: number): number {
   let quote = '';
@@ -473,7 +476,7 @@ export function htmlFacts(html: string): HtmlFacts {
       const src = attrs.get('src') ?? null;
       const close = findCloseTag(html, end + 1, 'script');
       const body = src === null ? html.slice(end + 1, close < 0 ? html.length : close) : '';
-      i = close < 0 ? html.length : close + 8;
+      i = close < 0 ? html.length : close + SCRIPT_CLOSE_LEN;
       if (type === 'importmap') {
         let value: unknown = null;
         let error: string | null = null;

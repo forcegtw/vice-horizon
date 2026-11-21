@@ -1,15 +1,15 @@
 // save.js — the main progress save: cash and story position, versioned.
 //
-// Rules this module keeps:
-//   * The schema version is the first field of everything written, so a
-//     future reader can branch before trusting any other field.
+// The four rules this module lives by:
+//   * The schema version leads every record it writes, so a future reader
+//     can branch before trusting any other field.
 //   * Reading never throws. Corrupt JSON, an unknown future version and
 //     non-finite money all resolve to null, and the game boots broke instead
 //     of crashing.
 //   * Writing is best-effort: private-mode storage and full quotas surface as
 //     swallowed errors. Losing an autosave beats losing the frame.
-//   * Every storage bucket this build owns is wiped by clearSave(), so a
-//     reset can never leave the economy ledger half-alive.
+//   * clearSave() wipes every bucket this build owns, so a reset can never
+//     leave the economy ledger half-alive.
 //
 // Bump SAVE_SCHEMA_VERSION in config.js whenever a persisted field changes;
 // migrate() walks older records up to the current shape.
@@ -20,10 +20,11 @@ import { SAVE_KEY, SAVE_SCHEMA_VERSION } from './config.js';
 const TARGET_VERSION = SAVE_SCHEMA_VERSION;
 
 // The economy module's ledger bucket; clearSave() wipes it so a reset is total.
+// economy.js holds the same string — keep the two in step.
 const ECONOMY_LEDGER_KEY = 'vice-horizon-economy-v1';
 
 // v1 records predate explicit stamping: a versionless object with a numeric
-// money field is read as v1, anything else is unreadable.
+// money field reads as v1, anything else is unreadable.
 function versionOf(record) {
   if (typeof record.version === 'number') return record.version;
   return typeof record.money === 'number' ? 1 : null;
@@ -73,7 +74,12 @@ export function writeSave(data) {
   }
 }
 
+// Every storage bucket this build owns; clearSave() walks the whole list so
+// a reset can never leave one half-alive.
+const CLEAR_KEYS = [SAVE_KEY, ECONOMY_LEDGER_KEY];
+
 export function clearSave() {
-  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
-  try { localStorage.removeItem(ECONOMY_LEDGER_KEY); } catch { /* ignore */ }
+  for (const key of CLEAR_KEYS) {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  }
 }

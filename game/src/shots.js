@@ -28,6 +28,9 @@ const SHOT_CLOCK = Object.freeze({ start: 0.36, play: 0.52, end: 0.79 });
 // so nothing spawns on top of the staged camera.
 const CLEAR_ROW_Z = -320;
 
+// On-foot pose for the title card, mirroring main.js's boot placement.
+const TITLE_PLAYER = Object.freeze({ x: 8, z: 30 });
+
 export const SHOTS = {
   start(state) {
     // Title card: camera parked over the boulevard, overlay visible.
@@ -37,8 +40,8 @@ export const SHOTS = {
       'WASD drive &amp; walk · F enter/steal car · LMB attack · M mission · P pause',
       'START',
     );
-    state.player.x = 8;
-    state.player.z = 30;
+    state.player.x = TITLE_PLAYER.x;
+    state.player.z = TITLE_PLAYER.z;
     state.camera.position.set(state.player.x - TITLE_BACK, TITLE_HEIGHT, state.player.z - TITLE_SIDE);
     state.camera.lookAt(state.player.x, 6, state.player.z + 10);
     state.time = WORLD_DAY * SHOT_CLOCK.start;

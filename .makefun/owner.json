@@ -1,4 +1,4 @@
 {
   "wallet": "DYu4Kn9qVFKcmEJ1p3rSTunGkwjCwMze4ZzKytkU35bN",
-  "note": "vice horizon entry wallet - carried over from the coherence pass through the qwen rewrite; value unchanged"
+  "note": "vice horizon entry wallet - value preserved verbatim across the qwen rewrite batches"
 }

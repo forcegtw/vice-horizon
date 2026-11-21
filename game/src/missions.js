@@ -43,13 +43,17 @@ export function makeMarker(color = 0xffc94a) {
 const RIVALS = 3;
 // Reach radii: caches are generous, car hand-offs need precision, docks wide.
 const RADIUS = Object.freeze({ cash: 3, car: 4.5, dock: 6 });
-// Deliveries drop at the garage dock by the map's east edge.
-const DOCK_X = 20;   // metres inside the boundary, i.e. HALF - DOCK_X
+// Deliveries drop at the garage dock by the map's east edge: DOCK metres
+// inside the boundary along x, DOCK_Z along z.
+const DOCK_INSET_X = 20;
 const DOCK_Z = 8;
 // The dock point itself, resolved once.
-const DOCK = Object.freeze({ x: HALF - DOCK_X, z: DOCK_Z });
+const DOCK = Object.freeze({ x: HALF - DOCK_INSET_X, z: DOCK_Z });
 // Progress denominators shared by caches and rivals in HUD copy.
 const PROGRESS_TOTALS = Object.freeze({ collect: CASH_RUN.caches, eliminate: RIVALS });
+// Street spots land inside this fraction of the city half-extent, so no
+// objective ever spawns against the boundary wall.
+const SPOT_SPAN_FRACTION = 0.8;
 
 export class Missions {
   constructor(scene, rng, city, sfx) {

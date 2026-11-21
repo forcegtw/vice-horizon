@@ -16,6 +16,9 @@ const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 // Default listen port; --port overrides it below.
 const DEFAULT_PORT = 8080;
 
+// Loopback only — a local dev convenience, never exposed beyond the machine.
+const HOST = '127.0.0.1';
+
 // --port override; anything non-numeric or out of range falls back to the default.
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
@@ -89,6 +92,6 @@ createServer((request, response) => {
     return;
   }
   createReadStream(file).pipe(response);
-}).listen(port, '127.0.0.1', () => {
+}).listen(port, HOST, () => {
   console.log(`game/ is on http://localhost:${port}`);
 });

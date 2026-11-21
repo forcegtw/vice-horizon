@@ -39,13 +39,16 @@ const DOSSIER_NAME = 'dossier.json';
 // rather than failing there.
 const SCREENSHOT_CAPS = { max: 4, maxBytes: 262144 };
 
+// Dossier text budget, in bytes; the builder cuts sections to stay inside it.
+const TEXT_MAX_BYTES = 163840;
+
 // The same caps handed to the dossier builder. Only text_max_bytes shapes
 // the bytes; the rest only refuse, so passing them makes this program fail
 // exactly where the scorer would. game_max_files is 993, not 1000: the
 // grader caps /output itself at 1000 entries and game/ counts alongside
 // screenshots/ (4 files plus their directory) and dossier.json.
 const GAME_CAPS = {
-  text_max_bytes: 163840,
+  text_max_bytes: TEXT_MAX_BYTES,
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
   game_max_bytes: 50331648,

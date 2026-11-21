@@ -139,12 +139,13 @@ const player = {
 let playerCar = new Vehicle(null, 0, 0, 0, 'player');
 
 // Weapon fire visuals: pooled tracer lines with a short lifetime.
+const TRACER_LIFE = 0.09;
 const tracerMat = new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.9 });
 const tracers = [];
 function spawnTracer(from, to) {
   const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, to]), tracerMat);
   scene.add(line);
-  tracers.push({ line, t: 0.09 });
+  tracers.push({ line, t: TRACER_LIFE });
 }
 
 // ------------------------------------------------------------------ actors

@@ -62,6 +62,11 @@ const STAR_FULL = '★';
 const STAR_EMPTY = '☆';
 // Health percentage below which the bar warms red.
 const LOW_HEALTH_AT = 30;
+// Wanted row tint above and at/below the escalation midpoint.
+const STAR_COLOR_HOT = '#ff3d3d';
+const STAR_COLOR_WARM = '#ff8a5f';
+// Corner bracket length on the radar frame, in px.
+const BRACKET_TICK = 14;
 
 export class Hud {
   constructor(root) {
@@ -184,7 +189,7 @@ export class Hud {
       this._last.stars = stars;
       this.el.wanted.textContent = stars;
       // The star row warms from orange to red as the level climbs.
-      this.el.wanted.style.color = state.wanted > 2 ? '#ff3d3d' : '#ff8a5f';
+      this.el.wanted.style.color = state.wanted > 2 ? STAR_COLOR_HOT : STAR_COLOR_WARM;
     }
 
     if (weapon.name !== this._last.weapon) {
@@ -269,12 +274,7 @@ export class Hud {
 
     g.clearRect(0, 0, S, S);
     g.save();
-    g.beginPath();
-    if (g.roundRect) {
-      g.roundRect(RADAR.bezel, RADAR.bezel, S - RADAR.bezel * 2, S - RADAR.bezel * 2, RADAR.radius);
-    } else {
-      g.rect(RADAR.bezel, RADAR.bezel, S - RADAR.bezel * 2, S - RADAR.bezel * 2);
-    }
+    this._traceRadarShape(g, S, RADAR.radius);
     g.clip();
 
     // Paper: a dark radial so the edges fall off instead of ending flat.
@@ -359,22 +359,25 @@ export class Hud {
     this.drawMinimapFrame(g, S, state);
   }
 
+  // Rounded-rect clip path for the radar, falling back to a plain rect when
+  // roundRect is unavailable (older canvas implementations).
+  _traceRadarShape(g, S, radius) {
+    g.beginPath();
+    if (g.roundRect) g.roundRect(RADAR.bezel, RADAR.bezel, S - RADAR.bezel * 2, S - RADAR.bezel * 2, radius);
+    else g.rect(RADAR.bezel, RADAR.bezel, S - RADAR.bezel * 2, S - RADAR.bezel * 2);
+  }
+
   // Radar housing: bezel (tints red while wanted), corner brackets, north
   // label. Runs after restore(), so nothing here is clipped away.
   drawMinimapFrame(g, S, state) {
     const b = RADAR.bezel / 2;
     g.save();
-    g.beginPath();
-    if (g.roundRect) {
-      g.roundRect(b, b, S - b * 2, S - b * 2, RADAR.radius + 1);
-    } else {
-      g.rect(b, b, S - b * 2, S - b * 2);
-    }
+    this._traceRadarShape(g, S, RADAR.radius + 1);
     g.strokeStyle = state.wanted > 0 ? '#ff5f5f66' : '#ffffff2e';
     g.lineWidth = RADAR.bezel;
     g.stroke();
 
-    const t = 14;
+    const t = BRACKET_TICK;
     g.strokeStyle = '#ffffff5c';
     g.lineWidth = 2;
     g.beginPath();

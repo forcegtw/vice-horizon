@@ -78,7 +78,7 @@ through `economy.bind(state)`; money has a single writer per source — missions
 
 - Runs fully offline: three.js r160 is vendored under `game/vendor/`, audio and textures
   are synthesized at runtime, so the first load needs no network.
-- Saves live in `localStorage` (versioned schema; corrupt entries start fresh) — deleting
+- Saves live in `localStorage` (versioned schema; a corrupt entry starts fresh) — deleting
   site data resets progress.
 - Smoke checks: `node scripts/smoke-economy.mjs`, `node scripts/smoke-new-systems.mjs`,
   `node scripts/check-headless.mjs`, and `node scripts/verify-shots.mjs` for

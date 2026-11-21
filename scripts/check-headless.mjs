@@ -20,8 +20,15 @@ import { extname, join } from 'node:path';
 const MIME = Object.freeze({ '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' });
 // stderr lines that can carry a page error (console sink, uncaught throw, chromium error).
 const ERROR_LINE = /CONSOLE|Uncaught|:ERROR:/;
+// WebGL / software-GL chatter is environment noise, not page errors.
+const ENV_NOISE = /WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback/i;
+// Chromium logs that name the container, not the page.
+const CONTAINER_NOISE = /Deprecation|Fontconfig|dbus|DBus/;
 const root = join(process.cwd(), 'game');
 const CHECK_PORT = 8791;
+// Fixed capture window and settle timeout, so every shot frames alike.
+const WINDOW_SIZE = '1280,720';
+const CAPTURE_TIMEOUT = '6000';
 const srv = createServer((req, res) => {
   const rel = req.url.split('?')[0];
   const p = join(root, rel === '/' ? 'index.html' : rel);
@@ -45,18 +52,17 @@ for (const shot of shots) {
       '--disable-dev-shm-usage',
       '--enable-unsafe-swiftshader',
       '--enable-logging=stderr', '--v=0', '--hide-scrollbars',
-      `--screenshot=/tmp/mm_${shot}.png`, '--window-size=1280,720',
+      `--screenshot=/tmp/mm_${shot}.png`, `--window-size=${WINDOW_SIZE}`,
       // Chrome 156 deadlocks under --virtual-time-budget with the game's rAF
       // loop on software WebGL (no PNG ever lands); --timeout on the real
       // clock gives the same settle window and captures reliably.
-      '--timeout=6000',
+      `--timeout=${CAPTURE_TIMEOUT}`,
       `http://127.0.0.1:${CHECK_PORT}/index.html?shot=${shot}&seed=1`,
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr.on('data', (d) => {
       for (const line of d.toString().split('\n')) {
         if (ERROR_LINE.test(line)) {
-          // WebGL / software-GL chatter is environment noise, not page errors.
-          if (/WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback/i.test(line)) continue;
+          if (ENV_NOISE.test(line)) continue;
           errs.push(line.trim().slice(0, 300));
         }
       }
@@ -64,7 +70,7 @@ for (const shot of shots) {
     const killer = setTimeout(() => proc.kill('SIGKILL'), KILL_AFTER_MS);
     proc.on('close', () => { clearTimeout(killer); resolve(); });
   });
-  const realErrors = errs.filter((e) => !/Deprecation|Fontconfig|dbus|DBus/.test(e));
+  const realErrors = errs.filter((e) => !CONTAINER_NOISE.test(e));
   const png = existsSync(`/tmp/mm_${shot}.png`);
   if (realErrors.length || !png) failures++;
   console.log(`shot=${shot}: errors=${realErrors.length} png=${png}`);

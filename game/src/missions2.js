@@ -53,6 +53,10 @@ const HIT_RADIUS_GATE = 6;
 const HIT_RADIUS_PICKUP = 5;
 // Cap on buildRoute's re-roll loop: a degenerate road-line list can never spin forever.
 const ROUTE_TRY_CAP = 8;
+// Marker pulse shared by every job marker: base opacity, wobble depth, rate.
+const PULSE_BASE = 0.35;
+const PULSE_DEPTH = 0.12;
+const PULSE_RATE = 4;
 
 export class SideJobs {
   constructor(scene, rng, city, sfx) {
@@ -245,7 +249,7 @@ export class SideJobs {
     if (this.timer <= 0) return this.fail('time ran out.');
 
     // Marker pulse, matched to the story marker's rhythm.
-    this.marker.children[0].material.opacity = 0.35 + Math.sin(world.time * 4) * 0.12;
+    this.marker.children[0].material.opacity = PULSE_BASE + Math.sin(world.time * PULSE_RATE) * PULSE_DEPTH;
 
     const px = player.x;
     const pz = player.z;

@@ -18,13 +18,28 @@
 const TONE_ATTACK = 0.005;
 // Siren wail period in seconds: the pitch sweeps 700 -> 1500 -> 700 Hz.
 const SIREN_PERIOD = 1.4;
+// Siren pitch extremes, in Hz (low -> high -> low within one period).
+const SIREN_LOW = 700;
+const SIREN_HIGH = 1500;
 // Idle hum gate: below this speed ratio the engine oscillator goes silent.
 const ENGINE_IDLE_GATE = 0.02;
+// Engine pitch span: idle base plus the span the speed ratio adds.
+const ENGINE_BASE_HZ = 55;
+const ENGINE_SPAN_HZ = 130;
+// Engine hum level while the car is actually moving.
+const ENGINE_RUN_GAIN = 0.05;
 // Music bed tempo and the fade-in window for its bus gain.
 const MUSIC_BPM = 96;
 const MUSIC_FADE_SECONDS = 2.5;
+const MUSIC_STEPS = 8;
 // Master gain ceiling: setVolume's [0, 1] level scales into this.
 const MASTER_CEILING = 0.5;
+// Music bus level: the bed sits under the effects, never over them.
+const MUSIC_LEVEL = 0.16;
+
+// The synthwave bed's two voices: bass roots and the arp an octave up.
+const BASS_LINE = [55, 55, 65.4, 55, 49, 49, 58.3, 49];
+const ARP_LINE = [220, 277, 330, 277, 196, 247, 294, 247];
 
 export class Sfx {
   constructor() {
@@ -49,7 +64,7 @@ export class Sfx {
     this.master.gain.value = MASTER_CEILING;
     this.master.connect(this.ctx.destination);
     this.musicGain = this.ctx.createGain();
-    this.musicGain.gain.value = 0.16;
+    this.musicGain.gain.value = MUSIC_LEVEL;
     this.musicGain.connect(this.master);
     this._startMusic();
   }
@@ -143,7 +158,7 @@ export class Sfx {
       this._engineGain.connect(this.master);
       this._engineOsc.start();
     }
-    const pitch = 55 + speedRatio * 130;
+    const pitch = ENGINE_BASE_HZ + speedRatio * ENGINE_SPAN_HZ;
     this._engineOsc.frequency.setTargetAtTime(pitch, this.ctx.currentTime, 0.08);
     const running = speedRatio > ENGINE_IDLE_GATE ? 0.05 : 0;
     this._engineGain.gain.setTargetAtTime(running, this.ctx.currentTime, 0.15);
@@ -191,8 +206,10 @@ export class Sfx {
       this._sirenOsc.frequency.cancelScheduledValues(t);
       this._sirenOsc.frequency.setValueAtTime(this._sirenOsc.frequency.value, t);
       const phase = (t % SIREN_PERIOD) / SIREN_PERIOD;
-      const half = phase < 0.5;
-      const pitch = half ? 700 + 800 * (phase / 0.5) : 1500 - 800 * ((phase - 0.5) / 0.5);
+      const span = SIREN_HIGH - SIREN_LOW;
+      const pitch = phase < 0.5
+        ? SIREN_LOW + span * (phase / 0.5)
+        : SIREN_HIGH - span * ((phase - 0.5) / 0.5);
       this._sirenOsc.frequency.linearRampToValueAtTime(pitch, t + 0.05);
     } else if (!on && this._sirenOsc) {
       this._sirenOsc.stop();
@@ -205,15 +222,13 @@ export class Sfx {
   // unmuting never pops.
   _startMusic() {
     const stepDur = 60 / MUSIC_BPM / 2;
-    const bass = [55, 55, 65.4, 55, 49, 49, 58.3, 49];
-    const arp = [220, 277, 330, 277, 196, 247, 294, 247];
     this.musicGain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
-    this.musicGain.gain.exponentialRampToValueAtTime(0.16, this.ctx.currentTime + MUSIC_FADE_SECONDS);
+    this.musicGain.gain.exponentialRampToValueAtTime(MUSIC_LEVEL, this.ctx.currentTime + MUSIC_FADE_SECONDS);
     this.musicTimer = setInterval(() => {
       if (!this.ctx || this.ctx.state !== 'running') return;
-      const s = this._step % 8;
-      this._tone(bass[s], stepDur * 1.8, 'sawtooth', 0.18, this.musicGain);
-      this._tone(arp[s] * 2, stepDur * 0.9, 'square', 0.045, this.musicGain);
+      const s = this._step % MUSIC_STEPS;
+      this._tone(BASS_LINE[s], stepDur * 1.8, 'sawtooth', 0.18, this.musicGain);
+      this._tone(ARP_LINE[s] * 2, stepDur * 0.9, 'square', 0.045, this.musicGain);
       if (s % 4 === 0) this._noise(0.06, 0.12, 4000);
       this._step++;
     }, stepDur * 1000);

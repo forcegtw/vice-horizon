@@ -79,8 +79,10 @@ const p2 = new Peds2(peds, mockCity(), makeRng(2));
 const pp = { x: 0, z: 0 };
 // Park one ped right next to the player so the 3-star fear radius bites.
 peds.peds[0].x = 2; peds.peds[0].z = 2;
-p2.senseThreat(pp, 3, 0.016);
-p2.update(0.016, pp, 3);
+// One 60 Hz frame is the step the fear sense is tuned against.
+const FEAR_DT = 0.016;
+p2.senseThreat(pp, 3, FEAR_DT);
+p2.update(FEAR_DT, pp, 3);
 console.log('peds2 fear after stars=3:', p2.peds.peds[0].fearLevel.toFixed(2), 'anim', p2.peds.peds[0].anim);
 
 // ---- minimap: DOM-less canvas can't run here; assert the class shape ----

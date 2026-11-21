@@ -41,8 +41,9 @@ w.crime('policeCarjack');
 w.crime('pedHit');
 console.log('wanted stack:', state.wanted);
 // Six seconds of decay with no cops in sight should bleed the heat off.
+const DECAY_DT = 0.1;
 const decayFrames = 60;
-for (let i = 0; i < decayFrames; i++) w.update(0.1, { x: 0, z: 0 }, { units: [] }, false);
+for (let i = 0; i < decayFrames; i++) w.update(DECAY_DT, { x: 0, z: 0 }, { units: [] }, false);
 console.log('after decay (no cops):', state.wanted, 'heat', Math.round(w.heat));
 w.clear('escape');
 console.log('cleared:', state.wanted, w.heat);
