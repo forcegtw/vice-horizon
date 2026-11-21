@@ -1,10 +1,11 @@
-// Headless browser check: serve game/ with the repo's own server pattern,
-// load ?shot=start|play|end, capture console errors + pageerror, assert zero.
-// Polish pass 4: --disable-dev-shm-usage added — in tight containers the default
-// /dev/shm backing makes the renderer's zygote die mid-capture ("Connection reset
-// by peer") and the process linger forever; /tmp backing fixes it deterministically.
-// Each browser run is also hard-killed after 40 s so a flaky renderer can never
-// wedge the whole check, and a missing PNG counts as a failure.
+// Headless browser check: serve game/ off a throwaway static server, load
+// ?shot=start|play|end, capture console errors + pageerror, assert zero.
+// Operational notes learned the hard way:
+// - --disable-dev-shm-usage: in tight containers the default /dev/shm backing
+//   kills the renderer's zygote mid-capture ("Connection reset by peer") and the
+//   process lingers forever; /tmp backing fixes it deterministically.
+// - Each browser run is hard-killed after 40 s so a flaky renderer can never
+//   wedge the whole check, and a missing PNG counts as a failure.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
@@ -23,6 +24,8 @@ const srv = createServer((req, res) => {
 await new Promise(r => srv.listen(8791, r));
 
 const shell = process.env.HOME + '/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell';
+// Interest marks an error-ish stderr line; GL chatter lines are dropped later.
+const ERROR_LINE_RE = /CONSOLE|Uncaught|:ERROR:/;
 let failures = 0;
 const shots = ['start', 'play', 'end'];
 for (const shot of shots) {
@@ -44,8 +47,8 @@ for (const shot of shots) {
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stderr.on('data', d => {
       for (const line of d.toString().split('\n')) {
-        if (/CONSOLE|Uncaught|:ERROR:/.test(line)) {
-          // WebGL/software-GL noise is environment chatter, not page errors.
+        if (ERROR_LINE_RE.test(line)) {
+          // WebGL/software-GL chatter is environment noise, not page errors.
           if (/WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback/i.test(line)) continue;
           errs.push(line.trim().slice(0, 300));
         }

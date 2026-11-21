@@ -1,16 +1,16 @@
-# Installed dependencies
+# Dependencies (never commit the installs)
 node_modules/
 .pnp
 .pnp.js
 
-# Build / packaging output (main.ts writes to MAKEFUN_OUTPUT_DIR, default out/)
+# Packaging / build output — main.ts writes to MAKEFUN_OUTPUT_DIR, /output by default.
 out/
 dist/
 build/
 .next/
 .nuxt/
 
-# Logs
+# Logs and pid files
 *.log
 *.pid
 npm-debug.log*
@@ -18,12 +18,12 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment files
+# Environment files (secrets stay out of history)
 .env
 .env.local
 .env.*.local
 
-# Editor and OS junk
+# Editor and OS debris
 .DS_Store
 Thumbs.db
 .idea/
@@ -31,7 +31,7 @@ Thumbs.db
 *.swp
 *.swo
 
-# Test and tooling output
+# Test and tooling artifacts
 coverage/
 .eslintcache
 .nyc_output

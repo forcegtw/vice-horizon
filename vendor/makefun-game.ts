@@ -1,6 +1,7 @@
-// make.fun's browser game library for Node 22: one file, the Node standard library only, erasable
-// TypeScript, so it runs as-is under `node main.ts` with no flags, no build and no install. Copy it to
-// vendor/makefun-game.ts in your repository (a copy anywhere else counts as lines you wrote) and import it:
+// make.fun's browser game library for Node 22: one file, Node standard library
+// only, erasable TypeScript, so it runs as-is under `node main.ts` — no flags,
+// no build, no install. Copy it to vendor/makefun-game.ts in your repository (a
+// copy anywhere else counts as lines you wrote) and import it:
 //
 //   import { buildDossier } from './vendor/makefun-game.ts';
 //   writeFileSync('/output/dossier.json', buildDossier('/output', {
@@ -10,8 +11,9 @@
 //     game_max_bytes: 50331648,
 //   }));
 //
-// The bounty's scorer runs this same file, byte for byte, on what you hand in, and requires your
-// dossier.json to equal what buildDossier writes from your game/ and screenshots/.
+// The bounty's scorer runs this same file, byte for byte, on what you hand in,
+// and requires your dossier.json to equal what buildDossier writes from your
+// game/ and screenshots/.
 //
 //   readGameTree(dir, caps)     every file and directory under game/, by path with its bytes and its class
 //                               (source, vendored or asset) and the totals; caps (each optional) bound how
@@ -1161,7 +1163,9 @@ export function buildDossier(dir: string, caps: DossierCaps): Uint8Array {
     return { name, media_type, sha256: sha256Hex(bytes), base64: Buffer.from(bytes).toString('base64') };
   });
 
-  const head = [...gameBlockLines(tree), '', '## Sources', '', ''].join('\n');
+  // Blank-line-flanked heading between the game block and the source sections.
+  const sourcesHeading = ['', '## Sources', '', ''];
+  const head = [...gameBlockLines(tree), ...sourcesHeading].join('\n');
   const sections = order.map((path) => {
     const code = codeOf(path);
     const lines = code === null ? 0 : code.lines;

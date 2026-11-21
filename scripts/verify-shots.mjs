@@ -1,6 +1,7 @@
-// Verify ?shot=start|play|end|dusk render with zero page errors.
-// Starts the repo's static server, screenshots each shot with a hard timeout,
-// and fails loudly if the browser reports console/page errors for any shot.
+// Verify ?shot=start|play|end (or any names passed on argv) render with zero
+// page errors. Starts the repo's static server, screenshots each shot with a
+// hard timeout, and fails loudly if the browser reports console/page errors for
+// any shot.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
@@ -19,6 +20,8 @@ const srv = createServer((req, res) => {
 await new Promise((r) => srv.listen(8793, r));
 
 const shell = process.env.HOME + '/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell';
+// Everything this matches is environment noise, never a page error.
+const NOISE_RE = /WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback|Deprecation|Fontconfig|dbus|DBus/i;
 const shots = process.argv.slice(2).length ? process.argv.slice(2) : ['start', 'play', 'end'];
 let bad = 0;
 for (const shot of shots) {
@@ -42,7 +45,7 @@ for (const shot of shots) {
     proc.stderr.on('data', (d) => {
       for (const line of d.toString().split('\n')) {
         if (!/CONSOLE|Uncaught|:ERROR:/.test(line)) continue;
-        if (/WebGL|GL Driver|ReadPixels|swiftshader|Automatic fallback|Deprecation|Fontconfig|dbus|DBus/i.test(line)) continue;
+        if (NOISE_RE.test(line)) continue;
         errs.push(line.trim().slice(0, 240));
       }
     });

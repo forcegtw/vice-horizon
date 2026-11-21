@@ -6,16 +6,16 @@
 // Main loop stays allocation-free; per-frame garbage is what spikes the frame time.
 
 import * as THREE from '../vendor/three.min.js';
-import { WORLD, PLAYER, CAR, POLICE, CAMERA, HEADLIGHTS, AUTOSAVE_SECONDS, WEAPONS, MISSIONS, makeRng } from './config.js';
+import { WORLD, PLAYER, CAR, CAMERA, HEADLIGHTS, AUTOSAVE_SECONDS, WEAPONS, MISSIONS, makeRng } from './config.js';
 import { buildCity } from './city.js';
 import { Input } from './input.js';
 import { Sfx } from './sfx.js';
 import { Vehicle, Traffic, Police, resolveCircle } from './vehicles.js';
-import { carMesh, pedMesh, playerMesh } from './models.js';
+import { carMesh, playerMesh } from './models.js';
 import { buildEnvironment } from './env.js';
 import { Peds } from './peds.js';
 import { Peds2 } from './peds2.js';
-import { Missions, makeMarker } from './missions.js';
+import { Missions } from './missions.js';
 import { SideJobs } from './missions2.js';
 import { Minimap } from './minimap.js';
 import { Hud } from './hud.js';
@@ -82,7 +82,7 @@ moon.shadow.camera.top = 160; moon.shadow.camera.bottom = -160;
 moon.shadow.camera.far = 500;
 scene.add(moon);
 
-// Headlight rig: two SpotLights that light the road ahead of the player's car.
+// Headlight rig: two SpotLights lighting the road ahead of the player's car.
 // Re-attached whenever the player steals a different car.
 function attachHeadlights(car) {
   if (!car) return;
@@ -122,17 +122,16 @@ const player = {
 };
 
 let playerCar = new Vehicle(null, 0, 0, 0, 'player');
-const carMeshHolder = null; // player's car mesh is created lazily when stealing
-const missionMarker = null;
 
 // Weapon fire visuals: tracer lines, pooled.
+const TRACER_LIFE = 0.09; // seconds a muzzle line stays lit
 const tracerMat = new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.9 });
 const tracers = [];
 function spawnTracer(from, to) {
   const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
   const line = new THREE.Line(geo, tracerMat);
   scene.add(line);
-  tracers.push({ line, t: 0.09 });
+  tracers.push({ line, t: TRACER_LIFE });
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +281,7 @@ function respawn() {
   police.clear();
 }
 
-// Enter the nearest car (traffic or the mission car); steal if occupied.
+// Enter the nearest car (traffic or a cruiser); steal if occupied.
 function tryEnterCar() {
   if (player.inCar) { exitCar(); return; }
   let best = null, bd = 4.5 * 4.5;
@@ -473,7 +472,7 @@ function updateSky() {
 let last = performance.now();
 let saveT = 0;
 let started = false;
-let forcedShot = null;
+let attackHeld = false;
 
 function tick(now) {
   requestAnimationFrame(tick);
@@ -651,8 +650,6 @@ function tick(now) {
   input.endFrame();
   renderer.render(scene, camera);
 }
-
-let attackHeld = false;
 
 // ---------------------------------------------------------------------------
 // Overlay wiring & boot

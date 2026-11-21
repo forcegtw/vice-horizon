@@ -1,5 +1,6 @@
-// Node smoke test: import each new module with minimal mocks and exercise the
-// update paths so TDZ / runtime errors surface without a browser.
+// Node smoke test: import the wanted/weather/radio/economy modules with minimal
+// mocks and drive their update paths, so TDZ / runtime errors surface without a
+// browser. Pass marker: a trailing SMOKE OK line.
 import { Wanted } from '../game/src/wanted.js';
 import { Weather } from '../game/src/weather.js';
 import { Radio } from '../game/src/radio.js';
@@ -20,6 +21,7 @@ const mockCity = () => ({
 });
 
 // wanted
+const DECAY_STEPS = 60; // heat-decay ticks driven below
 const state = { money: 0, wanted: 0, wantedCooldown: 0 };
 const sfx = { wantedUp: noop, cash: noop, pickup: noop };
 const hud = { toast: (t) => console.log('toast:', t) };
@@ -29,7 +31,7 @@ console.log('wanted after carjack:', state.wanted, 'heat', Math.round(w.heat));
 w.crime('policeCarjack');
 w.crime('pedHit');
 console.log('wanted stack:', state.wanted);
-for (let i = 0; i < 60; i++) w.update(0.1, { x: 0, z: 0 }, { units: [] }, false);
+for (let i = 0; i < DECAY_STEPS; i++) w.update(0.1, { x: 0, z: 0 }, { units: [] }, false);
 console.log('after decay (no cops):', state.wanted, 'heat', Math.round(w.heat));
 w.clear('escape');
 console.log('cleared:', state.wanted, w.heat);

@@ -1,6 +1,6 @@
-// Node smoke test for the new modules: missions2, peds2, minimap.
-// Minimal mocks; exercises startNext / update for each job kind, the ped
-// life layer, and the minimap draw path.
+// Node smoke test for the life-layer modules: missions2 (side jobs), peds2 and
+// minimap. Minimal mocks; exercises startNext / update for every job kind, the
+// ped fear path, and the minimap class shape. Pass marker: SMOKE2 OK.
 import { SideJobs, JOB_CATALOGUE } from '../game/src/missions2.js';
 import { Peds2 } from '../game/src/peds2.js';
 import { Minimap } from '../game/src/minimap.js';
@@ -73,6 +73,7 @@ p2.update(0.016, pp, 3);
 console.log('peds2 fear after stars=3:', p2.peds.peds[0].fearLevel.toFixed(2), 'anim', p2.peds.peds[0].anim);
 
 // ---- minimap: DOM-less 2D context via stubbed canvas not possible; check class shape ----
-console.log('Minimap prototype methods:', ['toggle', 'setVisible', 'update', 'draw', 'bakeRoads'].every(m => typeof Minimap.prototype[m] === 'function'));
+const MINIMAP_METHODS = ['toggle', 'setVisible', 'update', 'draw', 'bakeRoads'];
+console.log('Minimap prototype methods:', MINIMAP_METHODS.every(m => typeof Minimap.prototype[m] === 'function'));
 console.log('catalogue size:', JOB_CATALOGUE.length);
 console.log('SMOKE2 OK');

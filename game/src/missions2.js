@@ -1,25 +1,28 @@
-// missions2.js — side-job system: checkpoint races, timed delivery runs and a
-// rampage challenge. Runs alongside the main Missions chain (main.js owns the job
-// trigger key); each job owns one reused 3D marker so the scene graph never grows.
-// Rewards are reported through onReward so the money flow keeps a single writer
-// (state.money is credited in main.js). All positions are snapped to the road grid
-// via city.roadLines, matching Missions.randomStreetSpot, so every target is
-// reachable by car. blips() guards a race job whose route was never built, and the
-// delivery bonus is clamped so a fast haul can never pay more than +25%.
+// Side-job board: checkpoint races, timed delivery hauls and rampage contracts.
+// Runs beside the story chain (main.js owns the trigger key); every job reuses
+// ONE 3D marker so the scene graph never grows while jobs cycle.
+//
+// Money flow: rewards are reported through onReward and credited in main.js —
+// this module never writes state.money, keeping a single writer for cash.
+// All job positions snap to the road grid via city.roadLines (same recipe as
+// Missions.randomStreetSpot) so every target is reachable by car. blips()
+// guards a race whose route was never built, and the delivery speed bonus is
+// clamped so a fast haul can never pay more than +25% over the quoted price.
 
 import * as THREE from '../vendor/three.min.js';
 import { HALF } from './city.js';
 import { WORLD } from './config.js';
 import { makeMarker } from './missions.js';
 
+// Per-kind marker tint, also used for minimap blips.
 const JOB_COLORS = {
   race: 0x5fd6ff,
   delivery: 0xffa95f,
   rampage: 0xff5fd6,
 };
 
-// Static job catalogue. Race checkpoints and delivery addresses are generated
-// per-start from the road grid, so the payouts scale with route length.
+// Static job catalogue. Race checkpoint chains and delivery addresses are rolled
+// fresh per start from the road grid, so payouts scale with route length.
 export const JOB_CATALOGUE = [
   { id: 'race-1', kind: 'race', name: 'Boardwalk Sprint', cps: 4, limit: 70, payout: 650 },
   { id: 'race-2', kind: 'race', name: 'Downtown Slalom', cps: 5, limit: 90, payout: 850 },
@@ -31,8 +34,12 @@ export const JOB_CATALOGUE = [
   { id: 'rampage-2', kind: 'rampage', name: 'Neon Nightmare', target: 9, limit: 75, payout: 800 },
 ];
 
-// Delivery bonus: up to +25% of the base payout when over half the clock remains.
+// Early-haul bonus: up to +25% of the quoted payout when over half the clock
+// remains at drop-off.
 const DELIVERY_BONUS_MAX = 0.25;
+
+// Dimmed tint for race checkpoints still ahead of the player's blip.
+const FUTURE_CHECKPOINT_COLOR = 0x3f7f9f;
 
 export class SideJobs {
   constructor(scene, rng, city, sfx) {
@@ -41,18 +48,18 @@ export class SideJobs {
     this.city = city;
     this.sfx = sfx;
     this.catalogue = JOB_CATALOGUE;
-    this.cursor = 0;          // next job to offer when the player asks for work
-    this.job = null;          // active job record
+    this.cursor = 0;          // next catalogue entry offered when work is asked for
+    this.job = null;          // the active job record (a copy of the spec + rolled route)
     this.state = 'idle';      // idle | active
     this.timer = 0;
-    this.progress = 0;        // checkpoints hit / packages delivered / kills
+    this.progress = 0;        // checkpoints hit / packages moved / kills
     this.marker = makeMarker(JOB_COLORS.race);
     this.marker.visible = false;
     scene.add(this.marker);
     this.raceGate = null;     // translucent start-line ribbon for races
     this.msg = '';
     this.msgT = 0;
-    this.onReward = null;     // (cash, jobName) => void, wired in main.js
+    this.onReward = null;     // (cash, jobName) => void, wired by main.js
     this.onCrime = null;      // rampage kills bubble up as ped-hit crimes
   }
 
@@ -65,15 +72,15 @@ export class SideJobs {
     return this.job ? JOB_COLORS[this.job.kind] || 0xffc94a : 0xffc94a;
   }
 
-  // Minimap hook: one blip for the current objective (or the whole route
-  // remaining in a race, dimmed for future checkpoints).
+  // Minimap hook: the current objective as one blip — or the whole remaining
+  // race route, with future checkpoints dimmed.
   blips() {
     if (this.state !== 'active' || !this.job) return [];
     const out = [];
     if (this.job.kind === 'race') {
       if (!this.job.cps) return [];
       this.job.cps.forEach((c, i) => {
-        if (i >= this.progress) out.push({ x: c.x, z: c.z, color: i === this.progress ? this.blipColor() : 0x3f7f9f, size: i === this.progress ? 5 : 3 });
+        if (i >= this.progress) out.push({ x: c.x, z: c.z, color: i === this.progress ? this.blipColor() : FUTURE_CHECKPOINT_COLOR, size: i === this.progress ? 5 : 3 });
       });
     } else {
       out.push({ x: this.job.tx, z: this.job.tz, color: this.blipColor(), size: 5 });
@@ -81,7 +88,7 @@ export class SideJobs {
     return out;
   }
 
-  // Pick the next catalogue entry and roll a fresh route.
+  // Offer the next catalogue entry and roll its fresh route.
   startNext() {
     if (this.state === 'active') return this.message('Finish the current job first.', 2.5);
     const spec = this.catalogue[this.cursor % this.catalogue.length];
@@ -104,7 +111,7 @@ export class SideJobs {
       this.job.stage = 'pickup';
       this.job.px = pick.x; this.job.pz = pick.z;
       this.job.tx = drop.x; this.job.tz = drop.z;
-      // Payout scales with straight-line haul distance, min guaranteed base.
+      // Pay scales with the straight-line haul, floored at 60% of the quoted base.
       const haul = Math.hypot(drop.x - pick.x, drop.z - pick.z);
       this.job.payout = Math.round(spec.payout * (0.6 + Math.min(1, haul / (HALF * 1.2))));
       this.marker.visible = true;
@@ -120,8 +127,8 @@ export class SideJobs {
     return spec;
   }
 
-  // Ordered checkpoint chain that always steps at least one block, so routes
-  // read as a drive instead of jitter around one intersection.
+  // An ordered checkpoint chain that always steps at least one block, so a race
+  // reads as a drive across town instead of jitter around one intersection.
   buildRoute(count) {
     const pts = [];
     let last = null;
@@ -148,8 +155,8 @@ export class SideJobs {
     for (const child of this.marker.children) child.material.color.setHex(color);
   }
 
-  // Start-line ribbon: a thin glowing bar across the first checkpoint, so a
-  // race reads as an event rather than a floating cylinder.
+  // A thin glowing bar across the first checkpoint: a race should read as an
+  // event, not a floating cylinder.
   showRaceGate(pos) {
     if (!this.raceGate) {
       this.raceGate = new THREE.Mesh(
@@ -165,7 +172,7 @@ export class SideJobs {
 
   hideRaceGate() { if (this.raceGate) this.raceGate.visible = false; }
 
-  // Rampage scoring hook, called from main.js wherever peds die.
+  // Rampage scoring hook — main.js calls it wherever a ped dies.
   onPedKilled() {
     if (this.state !== 'active' || this.job?.kind !== 'rampage') return;
     this.progress++;
@@ -185,8 +192,8 @@ export class SideJobs {
   }
 
   pass() {
-    // payout prefers the job's own record (delivery bonuses rewrite it), then the
-    // spec; clamp at 0 so a malformed job record can't pay negative cash.
+    // Payout prefers the job record (delivery bonuses rewrite it) over the spec;
+    // clamped at 0 so a malformed record can never pay negative cash.
     const payout = Math.max(0, this.job.payout ?? this.job.spec?.payout ?? 0);
     this.message(`JOB PASSED — $${payout}`, 5);
     this.sfx.cash();
@@ -204,7 +211,7 @@ export class SideJobs {
     this.timer -= dt;
     if (this.timer <= 0) return this.fail('time ran out.');
 
-    // Marker pulse, matched to the main mission marker.
+    // Marker pulse, matched to the story-mission marker's breathing.
     const pulse = 0.35 + Math.sin(world.time * 4) * 0.12;
     this.marker.children[0].material.opacity = pulse;
 
@@ -229,7 +236,7 @@ export class SideJobs {
         this.message('Package secured. Haul it to the drop-off.', 3);
         this.sfx.pickup();
       } else if (job.stage === 'dropoff' && d(job.tx, job.tz) < 6 && player.inCar) {
-        // Bonus for delivering fast: up to +25% if over half the clock remains.
+        // Speed bonus: up to +25% when over half the clock remains.
         const bonus = Math.max(0, Math.min(1, this.timer / job.limit - 0.5) * 2);
         job.payout = Math.round(job.payout * (1 + DELIVERY_BONUS_MAX * bonus));
         return this.pass();

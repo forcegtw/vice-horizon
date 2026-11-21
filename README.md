@@ -75,8 +75,8 @@ through `economy.bind(state)`. Smoke checks live in `scripts/smoke-*.mjs`.
 
 - Runs fully offline: three.js r160 is vendored under `game/vendor/`, audio and textures are
   synthesized at runtime, so the first load needs no network.
-- Saves live in `localStorage` (versioned schema, corrupt entries start fresh); delete site data
-  to reset progress.
+- Saves live in `localStorage` (versioned schema, corrupt entries start fresh); clearing site
+  data resets progress.
 
 ## Entry
 

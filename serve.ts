@@ -1,17 +1,19 @@
-// A tiny static server for game/ (Node 22, standard library only), so an entry can be played
-// locally without a build step: `node serve.ts` serves game/ on http://localhost:8080.
-// It sends the MIME types a browser game needs, refuses any path outside game/, and otherwise
-// does nothing clever: this is a development convenience, not a web server for the internet.
+// A tiny static server for game/ (Node 22, standard library only), so the entry
+// can be played locally with no build step: `node serve.ts` serves game/ on
+// http://localhost:8080. It sends the MIME types a browser game needs, refuses
+// any path that escapes game/, and otherwise does nothing clever — this is a
+// development convenience, not a web server for the internet.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const DEFAULT_PORT = 8080;
 const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+const requested = portIndex === -1 ? DEFAULT_PORT : Number(args[portIndex + 1]);
+const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : DEFAULT_PORT;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -69,15 +71,15 @@ createServer((request, response) => {
   response.writeHead(200, {
     'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
     'content-length': size,
-    // The game is a local dev convenience: no-store keeps an edited src/ from being
-    // shadowed by a stale cached module, and vendored three.min.js (~600 KiB) gets a
-    // short-lived cache because it never changes between requests in a session.
+    // The game is a local dev convenience: no-store keeps an edited src/ from
+    // being shadowed by a stale cached module, and the vendored three.min.js
+    // (~600 KiB) gets a short-lived cache since it never changes mid-session.
     'cache-control': file.includes(`${sep}vendor${sep}`)
       ? 'private, max-age=3600'
       : 'no-store',
     'x-content-type-options': 'nosniff',
   });
-  // HEAD: headers above carry the metadata, then end with no body stream.
+  // HEAD: the headers above carry the metadata, then end with no body stream.
   if (request.method === 'HEAD') { response.end(); return; }
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {

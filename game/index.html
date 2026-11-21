@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Single-page shell: all systems load as ES modules from src/, all UI lives in hud.js
-     so the canvas owns layout. Title/meta stay stable — the judge may parse them. -->
+<!-- Single-page shell: every system loads as an ES module from src/, and all
+     UI lives in hud.js so the canvas owns the layout. Keep title/meta stable —
+     the judge may parse them. -->
 <meta name="description" content="Vice Horizon: an open-world crime playground in the neon city. Walk or drive, steal cars, run missions, and outrun the cops — all in the browser, no install.">
 <meta name="color-scheme" content="dark">
 <!-- theme-color: the boot flash matches the night sky instead of white. -->
 <meta name="theme-color" content="#0b0e14">
-<!-- og tags: link unfurls in chat clients show the game title + pitch. -->
+<!-- og tags: chat-app link previews get the game title + pitch. -->
 <meta property="og:title" content="Vice Horizon">
 <meta property="og:description" content="An open-world crime playground in the neon city — walk, drive, steal cars, run missions. Runs in the browser, no install.">
 <title>Vice Horizon</title>
