@@ -160,6 +160,7 @@ export function attack(w) {
 export function handleActionKeys(w) {
   const { input, player, hud, sfx } = w;
   if (input.actionTapped('enter')) tryEnterCar(w);
+  if (input.actionTapped('photo') && w.photoMode) w.photoMode.enter();
   if (input.actionTapped('weaponNext')) { player.weaponIndex = (player.weaponIndex + 1) % WEAPONS.length; }
   if (input.actionTapped('weaponPrev')) { player.weaponIndex = (player.weaponIndex + WEAPONS.length - 1) % WEAPONS.length; }
   if (input.actionTapped('job')) w.mission.advance();

@@ -198,6 +198,7 @@ function stepSystems(w, dt, playerRef) {
   w.sfx.siren(w.state.wanted > 0);
   w.mission.update(dt, playerRef, { time: w.state.time });
   w.sideJobs.update(dt, playerRef, { time: w.state.time });
+  if (w.running && w.challenges) w.challenges.update(dt, playerRef, { time: w.state.time, inCar: w.player.inCar });
   w.economy.update(dt, w.player, w.player.inCar, w.playerCar, w.hud);
   w.radio.setInCar(w.player.inCar && w.running);
   materializeRivals(w);
@@ -253,7 +254,7 @@ function stepFrameAdmin(w, dt) {
   w.sinceAutosave += dt;
   if (w.sinceAutosave > AUTOSAVE_SECONDS) {
     w.sinceAutosave = 0;
-    writeSave({ money: w.state.money, missionIndex: w.mission.index });
+    writeSave({ money: w.state.money, missionIndex: w.mission.index, ...(w.challenges ? w.challenges.saveData() : {}) });
     w.economy.persist();
   }
   w.input.endFrame();
@@ -264,10 +265,13 @@ function tick(w, now) {
   const dt = Math.min(0.05, (now - w.frameThen) / 1000);
   w.frameThen = now;
   // Pause: stop the schedule-ahead chain too, so music does not silently queue
-  // while the overlay is up and then dump a burst on resume.
+  // while the overlay is up and then dump a burst on resume. Photo mode lives
+  // in this branch too: its camera posing and overlay UI run only while the
+  // sim is frozen, and it re-renders the same frame below.
   if (w.state.paused) {
     w.radio.stop();
     w.sfx.engineOff();
+    if (w.photoMode) w.photoMode.update(dt);
     w.renderer.render(w.scene, w.camera);
     return;
   }

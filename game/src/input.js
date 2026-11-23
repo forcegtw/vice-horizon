@@ -49,6 +49,7 @@ export class Input {
       radio: ['KeyJ'],
       radioMute: ['KeyK'],
       map: ['KeyM'],
+      photo: ['KeyH'],
     };
 
     window.addEventListener('keydown', (e) => {

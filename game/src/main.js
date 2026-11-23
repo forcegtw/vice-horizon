@@ -23,9 +23,17 @@
 import { createWorld } from './main/boot.ts';
 import { wireHudWorld, wireUiEvents, applyShot } from './main/ui-wiring.ts';
 import { startLoop } from './main/loop.ts';
+import { PhotoMode } from './photo-mode.js';
+import { Challenges } from './challenges.js';
 
 const world = createWorld();
 wireHudWorld(world);
+// Systems that hang off the wired UI: photo mode (free camera over the frozen
+// sim) and the challenge board (payouts flow through economy.addCredits). Both
+// read hud/input/city off the world, so they land after wireHudWorld and
+// before shot staging; the loop drives their per-frame steps.
+world.photoMode = new PhotoMode(world);
+world.challenges = new Challenges(world);
 wireUiEvents(world);
 applyShot(world);
 startLoop(world);

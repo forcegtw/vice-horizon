@@ -224,5 +224,17 @@ export class Economy {
     if (hud) hud.toast(`+$${amount}`, 2);
   }
 
+  // Challenge-board payouts and future achievement sources: same ledger and
+  // persistence discipline as credit(), plus a source label on the toast so
+  // challenge money reads differently from mission money. Same till guard: a
+  // non-finite or non-positive amount no-ops instead of touching the ledger.
+  addCredits(amount, label, hud) {
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+    this.money += amount;
+    this.persist();
+    if (hud) hud.toast(label ? `${label} +$${amount}` : `+$${amount}`, 2.5);
+    return true;
+  }
+
   message(text, seconds = 3) { this.msg = text; this.msgT = seconds; }
 }
