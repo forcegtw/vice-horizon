@@ -11,7 +11,7 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.ts': 'text/javascript', '.json': 'application/json', '.png': 'image/png' };
 const root = join(process.cwd(), 'game');
 const srv = createServer((req, res) => {
   const p = join(root, req.url.split('?')[0] === '/' ? 'index.html' : req.url.split('?')[0]);

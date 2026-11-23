@@ -4,7 +4,8 @@
 // pulling inside one — drive-through in a car, walk-up on foot — opens the
 // shop menu; B / N / V / C spend.
 //
-// Ownership: Economy owns money flow and its own storage key. Mission
+// Pricing is delegated to pricing.js (price table, offer-board text, till
+// guard); this class owns money flow and its own storage key. Mission
 // rewards credit through credit() so persistence stays in one place, and
 // bind() merges the persisted ledger into the shared game state, where a
 // save already present wins over the mirror — mission progress and cash
@@ -12,17 +13,11 @@
 
 import * as THREE from '../vendor/three.min.js';
 import { PLAYER, UPGRADE_HINTS } from './config.js';
+import { PRICES, priceCheck, menuTitle } from './pricing.js';
 
 const ECO_KEY = 'vice-horizon-economy-v1';
 
 const SHOP_RADIUS = 8;   // metres from a canopy that counts as "at the station"
-
-const PRICES = {
-  health: 150,       // full heal at a gas station
-  armor: 400,        // full armor refill
-  speed: 2500,       // permanent engine upgrade (one-time)
-  plating: 1800,     // permanent armor upgrade (one-time)
-};
 
 export const UPGRADES = {
   speedBonus: 0.18,   // +18% top speed per engine tune
@@ -167,10 +162,7 @@ export class Economy {
   }
 
   _menuText() {
-    const offers = ['B buy health $150', 'N buy armor $400'];
-    if (!this.upgrades.speed) offers.push('V engine tune $2500');
-    if (!this.upgrades.plating) offers.push('C plating $1800');
-    return 'GAS STATION — ' + offers.join(' · ');
+    return menuTitle(this.upgrades);
   }
 
   // Shop hotkeys, called from the main loop when input.tapped fires.
@@ -178,8 +170,9 @@ export class Economy {
     if (!this.insideShop) return false;
     const spend = (cost) => {
       // Non-finite / negative prices can't occur (PRICES is static), but the
-      // guard keeps a future data-driven price table from bricking the till.
-      if (!Number.isFinite(cost) || cost < 0) return false;
+      // guard in pricing.js keeps a future data-driven table from bricking
+      // the till.
+      if (!priceCheck(cost)) return false;
       if (this.money < cost) {
         hud.toast('Not enough cash.', 2);
         return false;
